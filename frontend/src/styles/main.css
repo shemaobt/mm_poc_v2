@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   CUSTOM BASE STYLES
+   ============================================================ */
+
+@layer base {
+  :root {
+    --background: 48 29% 95%;
+    --foreground: 30 43% 3%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 43% 3%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 43% 3%;
+    --primary: 22 97% 38%;
+    --primary-foreground: 48 29% 95%;
+    --secondary: 167 19% 60%;
+    --secondary-foreground: 30 43% 3%;
+    --muted: 53 19% 70%;
+    --muted-foreground: 60 34% 19%;
+    --accent: 167 19% 60%;
+    --accent-foreground: 30 43% 3%;
+    --destructive: 22 97% 38%;
+    --destructive-foreground: 48 29% 95%;
+    --border: 53 19% 70%;
+    --input: 53 19% 70%;
+    --ring: 22 97% 38%;
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-branco text-preto font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* ============================================================
+   CUSTOM COMPONENT CLASSES
+   ============================================================ */
+
+@layer components {
+
+  /* Stage card container */
+  .stage-card {
+    @apply bg-white rounded-lg shadow-md border border-areia/30 p-6;
+  }
+
+  /* Gamified badge */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-divine {
+    @apply bg-amber-100 text-amber-800 border border-amber-200;
+  }
+
+  .badge-place {
+    @apply bg-azul/20 text-verde border border-azul/30;
+  }
+
+  .badge-time {
+    @apply bg-verde-claro/20 text-verde border border-verde-claro/30;
+  }
+
+  .badge-person {
+    @apply bg-telha/10 text-telha-dark border border-telha/20;
+  }
+
+  .badge-abstract {
+    @apply bg-areia/30 text-preto border border-areia;
+  }
+
+  .badge-object {
+    @apply bg-gray-100 text-gray-800 border border-gray-200;
+  }
+
+  /* Progress step indicator */
+  .step-indicator {
+    @apply flex items-center justify-center w-10 h-10 rounded-full text-sm font-semibold transition-all duration-300;
+  }
+
+  .step-indicator-completed {
+    @apply bg-verde-claro text-white;
+  }
+
+  .step-indicator-active {
+    @apply bg-telha text-white ring-4 ring-telha/20;
+  }
+
+  .step-indicator-pending {
+    @apply bg-areia/50 text-verde;
+  }
+
+  /* Hebrew text styling */
+  .hebrew-text {
+    @apply font-serif text-right text-lg leading-relaxed;
+    direction: rtl;
+  }
+
+  /* Clause card */
+  .clause-card {
+    @apply bg-white rounded-lg border border-areia/30 p-4 transition-all duration-200 hover:shadow-md hover:border-telha/30;
+  }
+
+  .clause-card-mainline {
+    @apply border-l-4 border-l-telha;
+  }
+
+  .clause-card-background {
+    @apply border-l-4 border-l-azul;
+  }
+}
+
+/* ============================================================
+   UTILITY ANIMATIONS
+   ============================================================ */
+
+@layer utilities {
+  .animate-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  .slide-in-left {
+    animation: slide-in 0.3s ease-out;
+  }
+}
