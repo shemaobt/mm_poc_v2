@@ -1,0 +1,425 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USER & AUTH
+// ============================================================
+
+model User {
+  id            String   @id @default(uuid())
+  username      String   @unique
+  email         String   @unique
+  passwordHash  String
+  role          String   @default("user") // "user" or "admin"
+  isApproved    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  passages      Passage[]
+  
+  @@map("users")
+}
+
+// ============================================================
+// CORE TABLES
+// ============================================================
+
+model Passage {
+  id             String   @id @default(uuid())
+  reference      String   @unique // e.g., "Ruth 1:1-6"
+  sourceLang     String   @default("hbo") // Biblical Hebrew
+  peakEvent      String? // Event ID of the peak moment
+  thematicSpine  String?  @db.Text // One-sentence summary
+  isComplete     Boolean  @default(false) // Analysis complete
+  completedAt    DateTime? // When analysis was completed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // User who created this passage
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  clauses              Clause[]
+  participants         Participant[]
+  participantRelations ParticipantRelation[]
+  events               Event[]
+  discourseRelations   DiscourseRelation[]
+  
+  // Metrics relation
+  aiSnapshots          AISnapshot[]
+  metricsSummary       MetricsSummary?
+
+  @@map("passages")
+}
+
+model Clause {
+  id            String   @id @default(uuid())
+  passageId     String
+  clauseIndex   Int // Order in passage (0-based)
+  verse         Int
+  text          String // Hebrew text
+  gloss         String   @db.Text // English gloss
+  clauseType    String // e.g., "Way0", "WayX", "xQtl"
+  isMainline    Boolean  @default(false)
+  chainPosition String? // initial, continuation, break
+  lemma         String? // Verb lemma
+  lemmaAscii    String? // ASCII version of lemma
+  binyan        String? // Verb stem
+  tense        String? // Verb tense
+  hasKi         Boolean  @default(false)
+  subjects      Json? // Array of subject lemmas
+  objects       Json? // Array of object lemmas
+  names         Json? // Array of proper names
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  passage Passage @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  events  Event[]
+
+  @@unique([passageId, clauseIndex])
+  @@map("clauses")
+}
+
+model Participant {
+  id              String   @id @default(uuid())
+  passageId       String
+  participantId   String // e.g., "p1", "p2"
+  hebrew          String // Bare lemma without articles/prepositions
+  gloss           String
+  type            String // person, group, divine, animal, thing, etc.
+  quantity        String? // one, two, few, many, all, mass, unknown
+  referenceStatus String? // new_mention, known, pointed, kind
+  properties      Json? // Array of {dimension, value, degree}
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  passage          Passage              @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  relationsFrom    ParticipantRelation[] @relation("RelationSource")
+  relationsTo      ParticipantRelation[] @relation("RelationTarget")
+  eventRoles       EventRole[]
+  participantEmotions EventEmotion[]
+
+  @@unique([passageId, participantId])
+  @@map("participants")
+}
+
+model ParticipantRelation {
+  id        String   @id @default(uuid())
+  passageId String
+  category  String // kinship, social, possession, part_whole, origin
+  type      String // e.g., "parent_of", "master_of", "owner_of"
+  sourceId  String
+  targetId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  passage Passage     @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  source  Participant @relation("RelationSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target  Participant @relation("RelationTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@map("participant_relations")
+}
+
+model Event {
+  id                  String   @id @default(uuid())
+  passageId           String
+  eventId             String // e.g., "e1", "e2"
+  clauseId            String?
+  category            String // STATE, MOTION, ACTION, TRANSFER, SPEECH, INTERNAL, PROCESS, RITUAL, META
+  eventCore           String // e.g., "go", "say", "be"
+  discourseFunction   String? // mainline, background, setting, peak, closing
+  chainPosition       String? // initial, continuation, resumption, break
+  narrativeFunction   String? // setting, inciting_incident, complication, peak, resolution, coda
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  passage             Passage             @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  clause              Clause?             @relation(fields: [clauseId], references: [id], onDelete: SetNull)
+  roles               EventRole[]
+  modifiers           EventModifier?
+  speechAct           SpeechAct?
+  pragmatic           EventPragmatic?
+  emotions            EventEmotion[]
+  narratorStance      NarratorStance?
+  audienceResponse    AudienceResponse?
+  laRetrieval         LARetrieval?
+  figurative          Figurative?
+  keyTerms            KeyTerm[]
+  discourseRelFrom    DiscourseRelation[] @relation("DiscourseSource")
+  discourseRelTo      DiscourseRelation[] @relation("DiscourseTarget")
+
+  @@unique([passageId, eventId])
+  @@map("events")
+}
+
+model EventRole {
+  id              String   @id @default(uuid())
+  eventId         String
+  role            String // doer, undergoer, feeler, receiver, hearer, message, origin, destination, etc.
+  participantId   String?
+  createdAt       DateTime @default(now())
+
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participant Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@map("event_roles")
+}
+
+model EventModifier {
+  id           String   @id @default(uuid())
+  eventId      String   @unique
+  happened     String? // yes, no, uncertain
+  realness     String? // real, possible, required, imagined
+  when         String? // before_now, at_now, after_now, always
+  viewpoint    String? // as_whole, as_ongoing, as_state
+  phase        String? // none, starting, stopping, continuing, finishing
+  repetition   String? // once, repeated, customary
+  onPurpose    String? // intended, unintended, unclear
+  howKnown     String? // saw_it, sensed_it, figured_out, was_told, unspecified
+  causation    String? // direct, caused, allowed, helped
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_modifiers")
+}
+
+model SpeechAct {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  type          String // stating, asking_yes_no, ordering, etc.
+  quotationType String? // direct, indirect, free_indirect
+  createdAt     DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("speech_acts")
+}
+
+model EventPragmatic {
+  id              String   @id @default(uuid())
+  eventId         String   @unique
+  discourseRegister String? @map("register") // narrative_formal, speech_casual, ceremonial, etc.
+  socialAxis      String? // superior_to_inferior, peer_to_peer, etc.
+  prominence      String? // peak, high, medium, low
+  pacing          String? // expanded, normal, compressed, abrupt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("event_pragmatics")
+}
+
+model EventEmotion {
+  id            String   @id @default(uuid())
+  eventId       String
+  participantId String?
+  primary       String // Emotion type (joy, grief, fear, etc.)
+  secondary     String?
+  intensity     String // low, medium, high, extreme
+  source        String // lexical, syntactic, somatic, actional, contextual, etc.
+  confidence    String // certain, high, medium, low
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  event       Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participant Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  @@map("event_emotions")
+}
+
+model NarratorStance {
+  id        String   @id @default(uuid())
+  eventId   String   @unique
+  stance    String // sympathetic, critical, neutral, ironic, celebratory, etc.
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("narrator_stances")
+}
+
+model AudienceResponse {
+  id        String   @id @default(uuid())
+  eventId   String   @unique
+  response  String // pathos, fear, hope, outrage, joy, awe, etc.
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("audience_responses")
+}
+
+model LARetrieval {
+  id            String   @id @default(uuid())
+  eventId       String   @unique
+  emotionTags   Json? // Array of strings
+  eventTags     Json? // Array of strings
+  registerTags  Json? // Array of strings
+  discourseTags Json? // Array of strings
+  socialTags    Json? // Array of strings
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("la_retrievals")
+}
+
+model Figurative {
+  id               String   @id @default(uuid())
+  eventId          String   @unique
+  isFigurative     Boolean  @default(true)
+  figureType       String // metaphor, simile, metonymy, etc.
+  sourceDomain     String?
+  targetDomain     String?
+  literalMeaning   String?  @db.Text
+  intendedMeaning  String?  @db.Text
+  transferability  String? // universal, near_universal, cultural, unique
+  translationNote  String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("figuratives")
+}
+
+model KeyTerm {
+  id             String   @id @default(uuid())
+  eventId        String
+  termId         String
+  sourceLemma    String
+  semanticDomain String // divine_name, theological, ritual, kinship, etc.
+  consistency    String // always, preferred, flexible
+  createdAt      DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("key_terms")
+}
+
+model DiscourseRelation {
+  id String @id @default(uuid())
+  passageId String
+  type      String // sequence, simultaneous, cause, result, purpose, contrast, etc.
+  sourceId  String
+  targetId  String
+  createdAt DateTime @default(now())
+
+  passage Passage @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  source  Event   @relation("DiscourseSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target  Event   @relation("DiscourseTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@map("discourse_relations")
+}
+
+// ============================================================
+// METRICS & AI TRACKING
+// ============================================================
+
+model AISnapshot {
+  id            String   @id @default(uuid())
+  passageId     String
+  snapshotData  Json     // AI-generated data at time of prefill
+  createdAt     DateTime @default(now())
+  
+  passage       Passage  @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  editLogs      EditLog[]
+  
+  @@map("ai_snapshots")
+}
+
+model EditLog {
+  id            String   @id @default(uuid())
+  snapshotId    String
+  action        String   // "create", "update", "delete"
+  entityType    String   // "participant", "relation", "event", "discourse_relation"
+  entityId      String   // UUID of edited entity
+  fieldName     String?  // Specific field changed (for updates)
+  oldValue      String?  @db.Text
+  newValue      String?  @db.Text
+  isAiGenerated Boolean  @default(false) // Was this entity originally from AI?
+  createdAt     DateTime @default(now())
+  
+  snapshot      AISnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  
+  @@map("edit_logs")
+}
+
+model MetricsSummary {
+  id            String   @id @default(uuid())
+  passageId     String   @unique
+  aiItemCount   Int      @default(0) // Items AI generated
+  addedCount    Int      @default(0) // Items user added
+  deletedCount  Int      @default(0) // AI items user deleted
+  modifiedCount Int      @default(0) // AI items user modified
+  fieldsChanged Json?    // {"type": 5, "gloss": 3, ...}
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  passage       Passage  @relation(fields: [passageId], references: [id], onDelete: Cascade)
+  
+  @@map("metrics_summaries")
+}
+
+// ============================================================
+// BHSA CACHE TABLES (for faster access)
+// ============================================================
+
+model BhsaWord {
+  id       String  @id @default(uuid())
+  nodeId   Int     @unique // BHSA node ID
+  book     String
+  chapter  Int
+  verse    Int
+  word     String // Hebrew word
+  lex      String? // Lexeme (ASCII)
+  lexUtf8  String? // Lexeme (UTF-8)
+  sp       String? // Part of speech
+  gloss    String?
+  vs       String? // Verb stem
+  vt       String? // Verb tense
+  function String? // Phrase function
+
+  @@index([book, chapter, verse])
+  @@map("bhsa_words")
+}
+
+model BhsaClause {
+  id         String @id @default(uuid())
+  nodeId     Int    @unique // BHSA node ID
+  book       String
+  chapter    Int
+  verse      Int
+  clauseType String? // typ feature
+  text       String  @db.Text
+
+  @@index([book, chapter, verse])
+  @@map("bhsa_clauses")
+}
+
+model BhsaVerse {
+  id      String @id @default(uuid())
+  nodeId  Int    @unique // BHSA node ID
+  book    String
+  chapter Int
+  verse   Int
+  text    String @db.Text
+
+  @@unique([book, chapter, verse])
+  @@map("bhsa_verses")
+}
