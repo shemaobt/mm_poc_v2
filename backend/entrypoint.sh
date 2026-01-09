@@ -15,4 +15,4 @@ echo "🌱 Seeding admin user..."
 python scripts/seed_admin.py
 
 echo "🚀 Starting server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --reload

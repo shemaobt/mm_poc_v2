@@ -21,7 +21,8 @@ COPY . .
 # Generate Prisma client
 RUN prisma generate
 
-EXPOSE 8000
+ENV PORT=8080
+EXPOSE 8080
 
 # Use gunicorn for production
-CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]
+CMD exec gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
