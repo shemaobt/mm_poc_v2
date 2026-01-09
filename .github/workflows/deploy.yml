@@ -48,6 +48,7 @@ jobs:
         run: |
           gcloud run deploy ${{ env.BACKEND_SERVICE }} \
             --image us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/backend:${{ github.sha }} \
+            --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
@@ -68,6 +69,7 @@ jobs:
         run: |
           gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
             --image us-central1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPO }}/frontend:${{ github.sha }} \
+            --project ${{ env.PROJECT_ID }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated
