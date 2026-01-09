@@ -31,3 +31,4 @@ node_modules/
 
 postgres_data/
 text-fabric-data/
+backend/gcs_creds.json
