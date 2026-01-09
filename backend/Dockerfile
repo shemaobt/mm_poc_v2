@@ -24,5 +24,11 @@ RUN prisma generate
 ENV PORT=8080
 EXPOSE 8080
 
+# Ensure entrypoint is executable
+RUN chmod +x entrypoint.sh
+
+# Use entrypoint script to handle secrets and db setup
+ENTRYPOINT ["./entrypoint.sh"]
+
 # Use gunicorn for production
 CMD exec gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
