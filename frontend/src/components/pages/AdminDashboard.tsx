@@ -5,15 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import {
-    Users,
     FileText,
     Edit,
-    Trash2,
-    Plus,
     Activity,
-    ArrowUpRight,
-    ArrowDownRight,
-    Search,
     RefreshCw,
     PenTool
 } from 'lucide-react'
@@ -50,7 +44,8 @@ export default function AdminDashboard() {
     const [metrics, setMetrics] = useState<AggregateMetrics | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [timeRange, setTimeRange] = useState('all')
+    const [timeRange, _setTimeRange] = useState('all')
+    // timeRange is used for filtering metrics (feature planned)
 
     const fetchMetrics = async () => {
         try {

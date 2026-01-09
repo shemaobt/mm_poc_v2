@@ -2,7 +2,7 @@
  * Zustand store for passage data and application state
  */
 import { create } from 'zustand'
-import type { PassageData, Clause, ParticipantResponse, RelationResponse, EventResponse, DiscourseRelationResponse } from '../types'
+import type { PassageData, ParticipantResponse, RelationResponse, EventResponse, DiscourseRelationResponse } from '../types'
 
 interface PassageStore {
     // State
@@ -14,6 +14,8 @@ interface PassageStore {
     loading: boolean
     error: string | null
     bhsaLoaded: boolean
+    aiSnapshot: unknown | null
+    snapshotId: string | null
 
     // Actions
     setPassageData: (data: PassageData) => void
@@ -25,6 +27,8 @@ interface PassageStore {
     setError: (error: string | null) => void
     setBhsaLoaded: (loaded: boolean) => void
     clearPassage: () => void
+    setAiSnapshot: (data: unknown, snapshotId: string) => void
+    trackEdit: (action: string, entityType: string, entityId: string, fieldName?: string, oldValue?: unknown, newValue?: unknown, isAiGenerated?: boolean) => Promise<void>
 }
 
 import { persist } from 'zustand/middleware'

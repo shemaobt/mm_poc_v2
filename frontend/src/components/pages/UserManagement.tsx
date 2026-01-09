@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { usersAPI, User } from '../../services/api'
-import { UserCheck, UserX, Shield, Trash2, RefreshCw } from 'lucide-react'
+import { UserCheck, UserX, Shield, RefreshCw } from 'lucide-react'
 
 export default function UserManagement() {
     const [users, setUsers] = useState<User[]>([])
@@ -69,7 +69,6 @@ export default function UserManagement() {
     }
 
     const pendingUsers = users.filter(u => !u.isApproved)
-    const approvedUsers = users.filter(u => u.isApproved)
 
     return (
         <Card>

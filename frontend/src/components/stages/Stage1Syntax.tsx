@@ -80,7 +80,7 @@ function Stage1Syntax() {
             }
 
             // Poll for completion
-            let safetyTimeout: NodeJS.Timeout
+            let safetyTimeout: ReturnType<typeof setTimeout>
 
             const pollInterval = setInterval(async () => {
                 try {
@@ -272,7 +272,7 @@ function Stage1Syntax() {
                                         </div>
                                     </div>
                                     {passage.isComplete && (
-                                        <Badge variant="outline" className="bg-white/50">Complete</Badge>
+                                        <Badge variant="success" className="bg-white/50">Complete</Badge>
                                     )}
                                 </div>
                             ))}

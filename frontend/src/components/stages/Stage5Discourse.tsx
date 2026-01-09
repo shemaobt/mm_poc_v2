@@ -3,7 +3,7 @@ import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI, mapsAPI } from '../../services/api'
 import { toast } from 'sonner'
 import { DiscourseRelationCreate } from '../../types'
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
+import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
@@ -140,11 +140,6 @@ function Stage5Discourse() {
         // Look up by id (UUID) or eventId (e.g. "e1", "e2")
         const ev = events.find(e => e.id === eventId || e.eventId === eventId)
         return ev ? { id: ev.eventId, core: ev.eventCore } : { id: eventId, core: 'Unknown' }
-    }
-
-    const getRelationLabel = (type: string) => {
-        const rel = DISCOURSE_RELATIONS.find(r => r.value === type)
-        return rel ? rel.label : type
     }
 
     const handleFinalize = async () => {
