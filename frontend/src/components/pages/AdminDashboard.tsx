@@ -253,7 +253,7 @@ export default function AdminDashboard() {
                                             <td className="px-4 py-3">{totalEdits}</td>
                                             <td className="px-4 py-3">-</td>
                                             <td className="px-4 py-3">
-                                                <Badge variant={accuracy > 80 ? 'default' : 'secondary'}>
+                                                <Badge variant={accuracy > 80 ? 'success' : 'warning'}>
                                                     {accuracy > 80 ? 'Good' : 'Needs Review'}
                                                 </Badge>
                                             </td>

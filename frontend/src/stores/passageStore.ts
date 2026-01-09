@@ -4,6 +4,14 @@
 import { create } from 'zustand'
 import type { PassageData, ParticipantResponse, RelationResponse, EventResponse, DiscourseRelationResponse } from '../types'
 
+// Type for AI analysis snapshot
+interface AiSnapshotData {
+    participants?: ParticipantResponse[]
+    relations?: RelationResponse[]
+    events?: EventResponse[]
+    discourse?: DiscourseRelationResponse[]
+}
+
 interface PassageStore {
     // State
     passageData: PassageData | null
@@ -14,7 +22,7 @@ interface PassageStore {
     loading: boolean
     error: string | null
     bhsaLoaded: boolean
-    aiSnapshot: unknown | null
+    aiSnapshot: AiSnapshotData | null
     snapshotId: string | null
 
     // Actions
@@ -27,7 +35,7 @@ interface PassageStore {
     setError: (error: string | null) => void
     setBhsaLoaded: (loaded: boolean) => void
     clearPassage: () => void
-    setAiSnapshot: (data: unknown, snapshotId: string) => void
+    setAiSnapshot: (data: AiSnapshotData, snapshotId: string) => void
     trackEdit: (action: string, entityType: string, entityId: string, fieldName?: string, oldValue?: unknown, newValue?: unknown, isAiGenerated?: boolean) => Promise<void>
 }
 

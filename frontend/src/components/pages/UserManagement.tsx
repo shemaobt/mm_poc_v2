@@ -148,12 +148,12 @@ export default function UserManagement() {
                                     <td className="px-4 py-3 font-medium text-gray-900">{user.username}</td>
                                     <td className="px-4 py-3 text-gray-500">{user.email}</td>
                                     <td className="px-4 py-3">
-                                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                                        <Badge variant={user.role === 'admin' ? 'default' : 'object'}>
                                             {user.role}
                                         </Badge>
                                     </td>
                                     <td className="px-4 py-3">
-                                        <Badge variant={user.isApproved ? 'default' : 'secondary'} className={user.isApproved ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
+                                        <Badge variant={user.isApproved ? 'success' : 'warning'} className={user.isApproved ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
                                             {user.isApproved ? 'Approved' : 'Pending'}
                                         </Badge>
                                     </td>
