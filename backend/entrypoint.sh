@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "🔄 Syncing database schema..."
-prisma db push --accept-data-loss
-
 # Check for GCS_SERVICE_ACCOUNT_JSON_B64 and create credential file
 if [ -n "$GCS_SERVICE_ACCOUNT_JSON_B64" ]; then
     echo "🔑 Found GCS_SERVICE_ACCOUNT_JSON_B64, creating gcs_creds.json..."
@@ -11,8 +8,9 @@ if [ -n "$GCS_SERVICE_ACCOUNT_JSON_B64" ]; then
     export GOOGLE_APPLICATION_CREDENTIALS=/app/gcs_creds.json
 fi
 
-echo "🌱 Seeding admin user..."
-python scripts/seed_admin.py
+# Run migrations in background to not block startup
+echo "🔄 Running database sync in background..."
+(prisma db push --accept-data-loss && python scripts/seed_admin.py) &
 
 echo "🚀 Starting server..."
 exec "$@"

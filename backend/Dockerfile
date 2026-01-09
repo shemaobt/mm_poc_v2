@@ -30,5 +30,5 @@ RUN chmod +x entrypoint.sh
 # Use entrypoint script to handle secrets and db setup
 ENTRYPOINT ["./entrypoint.sh"]
 
-# Use gunicorn for production
-CMD exec gunicorn app.main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
+# Use gunicorn for production - must use exec form with ENTRYPOINT
+CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--timeout", "120"]
