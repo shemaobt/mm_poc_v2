@@ -1,0 +1,33 @@
+### Load BHSA Data
+# This endpoint loads the BHSA data into the backend memory.
+# It is a long-running operation (5-10 seconds) and must be called 
+# before any passage fetching can occur.
+POST http://localhost:8000/api/bhsa/load
+Content-Type: application/json
+
+### Upload BHSA Data (Zip)
+# Upload a zip file containing the BHSA data.
+# IMPORTANT: The zip file MUST contain the 'github' folder at its root.
+# 
+# To create the zip file:
+#   cd ~/text-fabric-data
+#   zip -r bhsa_data.zip github
+#
+# This is useful for cloud environments where data is not persistent.
+# Use 'multipart/form-data'
+POST http://localhost:8000/api/bhsa/upload
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="bhsa_data.zip"
+Content-Type: application/zip
+
+< /Users/joao/Downloads/text-fabric-data/github.zip
+--boundary--
+
+
+### Check BHSA Status
+GET http://localhost:8000/api/bhsa/status
+
+### Fetch Passage (Example)
+GET http://localhost:8000/api/bhsa/passage?ref=Ruth%201:1-6

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mm_poc_v2_backend
+    environment:
+      DATABASE_URL: "postgresql://neondb_owner:npg_Yz4WqQaR9Bfb@ep-shiny-glitter-ah0g4plo-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+      PORT: 8000
+      GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: gen-lang-client-0886209230
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - tf_data:/root/text-fabric-data
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+    command: bash entrypoint.sh
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mm_poc_v2_frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+volumes:
+  tf_data:
