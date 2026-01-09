@@ -21,6 +21,9 @@ COPY . .
 # Generate Prisma client
 RUN prisma generate
 
+# Pre-load BHSA data during build (downloads from ETCBC/bhsa public repo)
+RUN python -c "from tf.app import use; use('ETCBC/bhsa', silent=False)"
+
 ENV PORT=8080
 EXPOSE 8080
 
