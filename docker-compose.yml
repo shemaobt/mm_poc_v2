@@ -24,6 +24,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: build
     container_name: mm_poc_v2_frontend
     environment:
       VITE_API_URL: http://localhost:8000

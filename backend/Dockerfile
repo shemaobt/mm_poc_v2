@@ -1,3 +1,4 @@
+# Production Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -20,13 +21,7 @@ COPY . .
 # Generate Prisma client
 RUN prisma generate
 
-# Pre-load BHSA data into the image
-# This bakes the ~370MB data into the layer
-COPY gcs_creds.json .
-ENV GOOGLE_APPLICATION_CREDENTIALS=gcs_creds.json
-ENV GOOGLE_CLOUD_PROJECT=gen-lang-client-0886209230
-RUN python preload_data.py && rm gcs_creds.json
-
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Use gunicorn for production
+CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120"]
