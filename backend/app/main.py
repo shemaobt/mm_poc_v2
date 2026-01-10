@@ -8,6 +8,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import connect_db, disconnect_db
 from app.api import passages, participants, relations, events, discourse, bhsa, ai, export, metrics, auth, users
+from app.services.bhsa_service import get_bhsa_service
+import threading
+
+
+def _load_bhsa_background():
+    """Load BHSA data in a background thread"""
+    try:
+        print("[STARTUP] Loading BHSA data in background...")
+        bhsa_service = get_bhsa_service()
+        bhsa_service.load_bhsa()
+        print("[STARTUP] BHSA data loaded successfully!")
+    except Exception as e:
+        print(f"[STARTUP] Failed to load BHSA data: {e}")
 
 
 @asynccontextmanager
@@ -15,6 +28,10 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan"""
     # Startup
     await connect_db()
+    
+    # Start BHSA loading in background thread (don't block app startup)
+    threading.Thread(target=_load_bhsa_background, daemon=True).start()
+    
     yield
     # Shutdown
     await disconnect_db()
