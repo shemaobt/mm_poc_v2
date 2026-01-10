@@ -23,9 +23,22 @@ class PassageRequest(BaseModel):
 async def get_bhsa_status():
     """Check BHSA loading status"""
     bhsa_service = get_bhsa_service()
+    
+    is_loaded = bhsa_service.is_loaded()
+    
+    # Return 503 Service Unavailable if not loaded
+    # This allows Cloud Run startup probes to wait until data is ready
+    if not is_loaded:
+        from fastapi import Response
+        return Response(
+            content='{"status": "not_loaded", "bhsa_loaded": false, "message": "' + bhsa_service.get_loading_message() + '"}',
+            status_code=503,
+            media_type="application/json"
+        )
+        
     return {
-        "status": "loaded" if bhsa_service.is_loaded() else "not_loaded",
-        "bhsa_loaded": bhsa_service.is_loaded(),
+        "status": "loaded",
+        "bhsa_loaded": True,
         "message": bhsa_service.get_loading_message()
     }
 
