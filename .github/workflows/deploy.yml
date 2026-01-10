@@ -57,6 +57,9 @@ jobs:
             --cpu-boost \
             --concurrency=80 \
             --set-env-vars="DATABASE_URL=${{ secrets.NEON_DATABASE_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},ELEVENLABS_VOICE_ID=${{ secrets.ELEVENLABS_VOICE_ID }},GCS_SERVICE_ACCOUNT_JSON_B64=${{ secrets.GCS_SERVICE_ACCOUNT_JSON_B64 }}" \
+            --startup-probe-http-get-path="/api/bhsa/status" \
+            --startup-probe-period-seconds=10 \
+            --startup-probe-failure-threshold=30 \
             --format="value(status.url)" > backend_url.txt
           echo "url=$(cat backend_url.txt)" >> $GITHUB_OUTPUT
 
