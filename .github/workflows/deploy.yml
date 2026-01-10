@@ -52,7 +52,7 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory=2Gi \
+            --memory=4Gi \
             --min-instances=1 \
             --cpu-boost \
             --concurrency=80 \
