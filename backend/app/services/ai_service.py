@@ -26,7 +26,7 @@ SOURCE TEXT (Hebrew/English):
     """
 
 def build_system_prompt() -> str:
-    """Construct the system prompt with schema definition"""
+    """Construct the system prompt with comprehensive schema definition"""
     return f"""
     You are an expert Biblical Hebrew linguist and semantic analyst.
     Your task is to analyze the provided Biblical Hebrew passage and extract semantic data 
@@ -36,22 +36,81 @@ def build_system_prompt() -> str:
     {json.dumps(TRIPOD_SCHEMA, indent=2)}
     
     OUTPUT FORMAT:
-    You must return valid JSON only, matching this structure:
+    You must return valid JSON only, matching this comprehensive structure:
     {{
         "participants": [
-            {{ "participantId": "p1", "hebrew": "string", "gloss": "string", "type": "string" }}
+            {{ 
+                "participantId": "p1", 
+                "hebrew": "אֱלֹהִים", 
+                "gloss": "God", 
+                "type": "divine",
+                "quantity": "one",
+                "referenceStatus": "known",
+                "properties": [ {{ "dimension": "power", "value": "omnipotent" }} ]
+            }}
         ],
         "relations": [
-            {{ "sourceId": "p1", "targetId": "p2", "category": "kinship", "type": "father" }}
+            {{ "sourceId": "p1", "targetId": "p2", "category": "kinship", "type": "father_of" }},
+            {{ "sourceId": "p3", "targetId": "p4", "category": "spatial", "type": "over" }}
         ],
         "events": [
             {{ 
                 "eventId": "e1", 
-                "clauseId": "c1", 
-                "category": "ACTION", 
-                "eventCore": "lemma", 
-                "roles": [ {{ "role": "doer", "participantId": "p1" }} ],
-                "modifiers": {{ "happened": "yes" }} 
+                "category": "ACTION",
+                "eventCore": "create", 
+                "discourseFunction": "mainline",
+                "narrativeFunction": "setting",
+                "chainPosition": "initial",
+                "roles": [ 
+                    {{ "role": "doer", "participantId": "p1" }},
+                    {{ "role": "undergoer", "participantId": "p2" }}
+                ],
+                "modifiers": {{
+                    "happened": "yes",
+                    "realness": "real",
+                    "when": "before_now",
+                    "viewpoint": "as_whole",
+                    "phase": "none",
+                    "repetition": "once",
+                    "onPurpose": "intended",
+                    "howKnown": "unspecified",
+                    "causation": "direct"
+                }},
+                "pragmatic": {{
+                    "register": "narrative_formal",
+                    "socialAxis": "divine_to_human",
+                    "prominence": "high",
+                    "pacing": "normal"
+                }},
+                "emotions": [
+                    {{
+                        "participantId": "p1",
+                        "primary": "satisfaction",
+                        "intensity": "medium",
+                        "source": "actional",
+                        "confidence": "medium"
+                    }}
+                ],
+                "narratorStance": {{ "stance": "neutral" }},
+                "audienceResponse": {{ "response": "awe" }},
+                "laTags": {{
+                    "emotionTags": ["wonder", "awe"],
+                    "eventTags": ["creation", "divine_action"],
+                    "registerTags": ["formal_narrative"],
+                    "discourseTags": ["opening"],
+                    "socialTags": ["divine_speech"]
+                }},
+                "figurative": {{
+                    "isFigurative": false
+                }},
+                "keyTerms": [
+                    {{
+                        "termId": "kt1",
+                        "sourceLemma": "ברא",
+                        "semanticDomain": "theological",
+                        "consistency": "always"
+                    }}
+                ]
             }}
         ],
         "discourse": [
@@ -59,12 +118,55 @@ def build_system_prompt() -> str:
         ]
     }}
     
+    MODIFIER VALUES (use these exact values):
+    - happened: yes, no, uncertain
+    - realness: real, possible, required, imagined
+    - when: before_now, at_now, after_now, always
+    - viewpoint: as_whole, as_ongoing, as_state
+    - phase: none, starting, stopping, continuing, finishing
+    - repetition: once, repeated, customary
+    - onPurpose: intended, unintended, unclear
+    - howKnown: saw_it, sensed_it, figured_out, was_told, unspecified
+    - causation: direct, caused, allowed, helped
+    
+    PRAGMATIC VALUES:
+    - register: narrative_formal, narrative_casual, speech_formal, speech_casual, ceremonial, legal, poetic, prophetic
+    - socialAxis: superior_to_inferior, inferior_to_superior, peer_to_peer, divine_to_human, human_to_divine
+    - prominence: peak, high, medium, low
+    - pacing: expanded, normal, compressed, abrupt
+    
+    EMOTION VALUES:
+    - primary/secondary: joy, grief, fear, anger, love, hate, surprise, disgust, shame, pride, hope, despair, gratitude, jealousy, compassion, awe
+    - intensity: low, medium, high, extreme
+    - source: lexical, syntactic, somatic, actional, contextual, figurative
+    - confidence: certain, high, medium, low
+    
+    NARRATOR/AUDIENCE VALUES:
+    - stance: sympathetic, critical, neutral, ironic, celebratory, mourning, warning
+    - response: pathos, fear, hope, outrage, joy, awe, relief, suspense, satisfaction
+    
+    FIGURATIVE VALUES:
+    - figureType: metaphor, simile, metonymy, synecdoche, idiom, hyperbole, euphemism, personification, merism, hendiadys, irony, rhetorical_question
+    - transferability: universal, near_universal, cultural, unique
+    
+    KEY TERM VALUES:
+    - semanticDomain: divine_name, theological, ritual, kinship, legal, geographic, cultural
+    - consistency: always, preferred, flexible
+    
     RULES:
     1. Extract all participants (people, groups, divine, distinct objects).
-    2. Map every main verbal clause to an Event.
-    3. Identify relations between participants.
+    2. Map every main verbal clause to an Event with FULL details.
+    3. Identify relations between participants (kinship, spatial, possession, part_whole, social, origin).
     4. Connect events with discourse relations.
-    5. Use the specific categories and roles from the Schema.
+    5. For EACH event, provide:
+       - All modifiers (9 fields)
+       - Pragmatic info (register, social axis, prominence, pacing)
+       - Emotions if detectable (who feels what)
+       - Narrator stance and intended audience response
+       - LA Tags for retrieval
+       - Figurative language if present
+       - Key terms for important theological/ritual vocabulary
+    6. Be thorough but accurate - only mark emotions/figurative when evidence supports it.
     """
 
 # ============================================================
@@ -99,14 +201,12 @@ class AIService:
         system_prompt = build_system_prompt()
         
         print(f"[AI] Prompts built. User prompt length: {len(user_prompt)} chars")
-        print(f"[AI] Calling Claude API with model: claude-sonnet-4-20250514, max_tokens: 16000")
+        print(f"[AI] Calling Claude API with model: claude-opus-4-5-20251101, max_tokens: 16000")
         
         try:
-            # Using standard model name if the configured one looks suspicious
-            # but keeping user's choice if it works. 
-            # Bumping max_tokens to 8192 to prevent truncation which causes JSON errors.
+            # Using the latest Opus 4.5 model as requested by user
             message = await client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-opus-4-5-20251101",
                 max_tokens=16000,
                 temperature=0,
                 system=system_prompt,
@@ -128,6 +228,7 @@ class AIService:
             total_time = time.time() - start_time
             print(f"[AI] Total analysis completed in {total_time:.2f}s")
             print(f"[AI] Result summary: {len(result.get('participants', []))} participants, "
+                  f"{len(result.get('relations', []))} relations, "
                   f"{len(result.get('events', []))} events, {len(result.get('discourse', []))} discourse relations")
             
             return result
@@ -169,6 +270,7 @@ class AIService:
                 fixed_content = re.sub(r",\s*([\]}])", r"\1", content)
                 return json.loads(fixed_content)
             except Exception:
-                # Re-raise original error with context
-                print(f"Failed JSON content preview: {content[:200]}...{content[-200:]}")
+                # Re-raise original error with context and FULL content for debugging
+                print(f"JSON PARSE FAILED. Content length: {len(content)}")
+                print(f"TAIL of content: {content[-500:]}")
                 raise e
