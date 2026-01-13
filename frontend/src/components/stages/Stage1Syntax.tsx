@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
-import { bhsaAPI, passagesAPI } from '../../services/api'
+import { bhsaAPI, passagesAPI, pericopesAPI, Pericope } from '../../services/api'
 import AIProcessingModal from '../common/AIProcessingModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
-import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter } from 'lucide-react'
 
 interface ExistingPassage {
     id: string
@@ -22,13 +22,68 @@ function Stage1Syntax() {
     const [showAIModal, setShowAIModal] = useState(false)
     const [existingPassages, setExistingPassages] = useState<ExistingPassage[]>([])
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
+    
+    // Pericopes state
+    const [pericopes, setPericopes] = useState<Pericope[]>([])
+    const [books, setBooks] = useState<string[]>([])
+    const [selectedBook, setSelectedBook] = useState<string>('')
+    const [searchTerm, setSearchTerm] = useState('')
+    const [showDropdown, setShowDropdown] = useState(false)
+    const [selectedPericope, setSelectedPericope] = useState<Pericope | null>(null)
+    const dropdownRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         // Always check backend status on mount to ensure synchronization
         // even if frontend thinks it is loaded (persistence might be stale if backend restarted)
         autoLoadBHSA()
         fetchExistingPassages()
+        fetchBooks()
+        fetchPericopes()
     }, [])
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowDropdown(false)
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
+    
+    // Fetch pericopes when book or search changes
+    useEffect(() => {
+        fetchPericopes()
+    }, [selectedBook, searchTerm])
+    
+    const fetchBooks = async () => {
+        try {
+            const bookList = await pericopesAPI.getBooks()
+            setBooks(bookList)
+        } catch (err) {
+            console.error('Failed to fetch books:', err)
+        }
+    }
+    
+    const fetchPericopes = async () => {
+        try {
+            const params: { book?: string; search?: string; limit?: number } = { limit: 50 }
+            if (selectedBook) params.book = selectedBook
+            if (searchTerm) params.search = searchTerm
+            const pericopeList = await pericopesAPI.list(params)
+            setPericopes(pericopeList)
+        } catch (err) {
+            console.error('Failed to fetch pericopes:', err)
+        }
+    }
+    
+    const handleSelectPericope = (pericope: Pericope) => {
+        setSelectedPericope(pericope)
+        setReference(pericope.reference)
+        setSearchTerm(pericope.reference)
+        setShowDropdown(false)
+    }
 
     // Check for duplicates as user types
     useEffect(() => {
@@ -204,29 +259,98 @@ function Stage1Syntax() {
             {/* Passage search */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-lg">Passage Reference</CardTitle>
-                    <div className="flex gap-2 mt-2">
-                        <Badge variant="default">Ruth 1:1-6</Badge>
-                        <Badge variant="default">Genesis 1:1-5</Badge>
-                        <Badge variant="default">Exodus 3:1-10</Badge>
-                    </div>
+                    <CardTitle className="text-lg">Select a Pericope</CardTitle>
+                    <CardDescription>
+                        Search and select from the available Old Testament pericopes.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="flex gap-3">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50" />
-                            <Input
-                                value={reference}
-                                onChange={(e) => setReference(e.target.value)}
-                                placeholder="Enter passage reference..."
-                                className="pl-10"
-                                onKeyDown={(e) => e.key === 'Enter' && handleFetchPassage()}
-                            />
+                    <div className="flex gap-3 items-start">
+                        {/* Book filter */}
+                        <div className="w-48">
+                            <label className="text-xs text-verde/60 mb-1 block">Filter by Book</label>
+                            <div className="relative">
+                                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50" />
+                                <select
+                                    value={selectedBook}
+                                    onChange={(e) => setSelectedBook(e.target.value)}
+                                    className="w-full pl-10 pr-8 py-2 border border-areia-escuro/20 rounded-md bg-white text-preto text-sm focus:outline-none focus:ring-2 focus:ring-telha/20 focus:border-telha appearance-none cursor-pointer"
+                                >
+                                    <option value="">All Books</option>
+                                    {books.map((book) => (
+                                        <option key={book} value={book}>{book}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50 pointer-events-none" />
+                            </div>
                         </div>
-                        <Button onClick={handleFetchPassage} disabled={loading || !bhsaLoaded}>
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Fetch Passage'}
-                        </Button>
+                        
+                        {/* Pericope search dropdown */}
+                        <div className="flex-1 relative" ref={dropdownRef}>
+                            <label className="text-xs text-verde/60 mb-1 block">Pericope Reference</label>
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50" />
+                                <Input
+                                    value={searchTerm}
+                                    onChange={(e) => {
+                                        setSearchTerm(e.target.value)
+                                        setSelectedPericope(null)
+                                        setReference('')
+                                        setShowDropdown(true)
+                                    }}
+                                    onFocus={() => setShowDropdown(true)}
+                                    placeholder="Search pericopes (e.g. Genesis 1, Ruth 1:1)..."
+                                    className="pl-10"
+                                />
+                            </div>
+                            
+                            {/* Dropdown */}
+                            {showDropdown && pericopes.length > 0 && (
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-areia-escuro/20 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    {pericopes.map((pericope) => (
+                                        <button
+                                            key={pericope.id}
+                                            onClick={() => handleSelectPericope(pericope)}
+                                            className={`w-full text-left px-4 py-2.5 hover:bg-areia/30 transition-colors flex items-center justify-between gap-2 ${
+                                                selectedPericope?.id === pericope.id ? 'bg-telha/10 text-telha' : 'text-preto'
+                                            }`}
+                                        >
+                                            <span className="font-medium">{pericope.reference}</span>
+                                            <span className="text-xs text-verde/50">{pericope.book}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            
+                            {/* No results */}
+                            {showDropdown && pericopes.length === 0 && searchTerm && (
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-areia-escuro/20 rounded-lg shadow-lg p-4 text-center text-verde/60 text-sm">
+                                    No pericopes found matching "{searchTerm}"
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Fetch button */}
+                        <div className="pt-5">
+                            <Button 
+                                onClick={handleFetchPassage} 
+                                disabled={loading || !bhsaLoaded || !selectedPericope}
+                                title={!selectedPericope ? 'Please select a pericope from the list' : ''}
+                            >
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Fetch Passage'}
+                            </Button>
+                        </div>
                     </div>
+                    
+                    {/* Selected pericope indicator */}
+                    {selectedPericope && (
+                        <div className="mt-3 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-verde-claro" />
+                            <span className="text-sm text-verde">
+                                Selected: <strong className="text-telha">{selectedPericope.reference}</strong>
+                            </span>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 

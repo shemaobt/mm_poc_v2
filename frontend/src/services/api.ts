@@ -217,6 +217,32 @@ export const passagesAPI = {
 }
 
 // ============================================================
+// PERICOPES API
+// ============================================================
+
+export interface Pericope {
+    id: string
+    reference: string
+    book: string
+    chapterStart: number
+    verseStart: number
+    chapterEnd: number | null
+    verseEnd: number | null
+}
+
+export const pericopesAPI = {
+    list: async (params?: { book?: string; search?: string; limit?: number }): Promise<Pericope[]> => {
+        const response = await apiClient.get('/api/pericopes', { params })
+        return response.data
+    },
+
+    getBooks: async (): Promise<string[]> => {
+        const response = await apiClient.get('/api/pericopes/books')
+        return response.data
+    },
+}
+
+// ============================================================
 // EXPORT API (Tripod v5.2)
 // ============================================================
 
