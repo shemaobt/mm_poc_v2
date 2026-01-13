@@ -7,7 +7,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { GitBranch, ArrowRight, Plus, Trash2, Loader2 } from 'lucide-react'
+import { GitBranch, ArrowRight, Plus, Trash2, Loader2, Check, CheckCircle2 } from 'lucide-react'
 
 const RELATION_CATEGORIES = ['kinship', 'social', 'possession', 'part_whole', 'origin', 'spatial', 'temporal', 'logical', 'comparison']
 
@@ -22,8 +22,16 @@ function Stage3Relations() {
         error,
         setError,
         trackEdit,
-        aiSnapshot
+        aiSnapshot,
+        validated,
+        toggleValidation,
+        validateAll
     } = usePassageStore()
+    
+    // Validation helpers
+    const isValidated = (id: string) => validated.relations.has(id)
+    const validatedCount = validated.relations.size
+    const allValidated = relations.length > 0 && relations.every(r => validated.relations.has(r.id))
     const [formData, setFormData] = useState<RelationCreate>({
         category: 'kinship',
         type: '',
@@ -157,11 +165,52 @@ function Stage3Relations() {
                         </Card>
                     ) : (
                         <div className="space-y-3">
+                            {/* Validation summary */}
+                            <div className="flex items-center justify-between bg-areia/20 rounded-lg p-3">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle2 className={`w-5 h-5 ${allValidated ? 'text-verde-claro' : 'text-areia'}`} />
+                                    <span className="text-sm text-preto">
+                                        <span className="font-semibold">{validatedCount}</span> of <span className="font-semibold">{relations.length}</span> relations validated
+                                    </span>
+                                    {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
+                                </div>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => validateAll('relations', relations.map(r => r.id))}
+                                    disabled={allValidated}
+                                >
+                                    <Check className="w-4 h-4 mr-1" />
+                                    Validate All
+                                </Button>
+                            </div>
+
                             {relations.map(r => (
-                                <Card key={r.id || `${r.sourceId}-${r.targetId}`} className="group">
+                                <Card 
+                                    key={r.id || `${r.sourceId}-${r.targetId}`} 
+                                    className={`group transition-all ${isValidated(r.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
+                                >
                                     <CardContent className="p-4">
                                         <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
+                                            {/* Validation checkbox */}
+                                            <button
+                                                onClick={() => toggleValidation('relations', r.id)}
+                                                className={`flex items-center gap-2 px-2 py-1 rounded transition-all mr-4 ${
+                                                    isValidated(r.id) 
+                                                        ? 'bg-verde-claro/20 text-verde-claro' 
+                                                        : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                                }`}
+                                            >
+                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                                    isValidated(r.id) 
+                                                        ? 'border-verde-claro bg-verde-claro' 
+                                                        : 'border-areia'
+                                                }`}>
+                                                    {isValidated(r.id) && <Check className="w-3 h-3 text-white" />}
+                                                </div>
+                                            </button>
+
+                                            <div className="flex items-center gap-4 flex-1">
                                                 <div className="font-medium text-preto">
                                                     {getParticipantDisplay(r.sourceId, r.source)}
                                                 </div>
