@@ -8,7 +8,20 @@ import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog'
-import { MessageSquare, ArrowRight, Plus, Trash2, Loader2, Save, CheckCircle } from 'lucide-react'
+import { MessageSquare, ArrowRight, Plus, Trash2, Loader2, Save, CheckCircle, Users, Zap, Check, CheckCircle2 } from 'lucide-react'
+
+// Category colors for visual distinction
+const CATEGORY_COLORS: Record<string, string> = {
+    ACTION: 'bg-red-100 text-red-700 border-red-200',
+    MOTION: 'bg-blue-100 text-blue-700 border-blue-200',
+    STATE: 'bg-purple-100 text-purple-700 border-purple-200',
+    SPEECH: 'bg-green-100 text-green-700 border-green-200',
+    TRANSFER: 'bg-orange-100 text-orange-700 border-orange-200',
+    INTERNAL: 'bg-pink-100 text-pink-700 border-pink-200',
+    PROCESS: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+    RITUAL: 'bg-amber-100 text-amber-700 border-amber-200',
+    META: 'bg-gray-100 text-gray-700 border-gray-200',
+}
 
 const DISCOURSE_RELATIONS = [
     { value: 'sequence', label: 'Sequence (and then)' },
@@ -31,13 +44,22 @@ function Stage5Discourse() {
         discourse,
         setDiscourse,
         events,
+        participants,
         loading,
         setLoading,
         error,
         setError,
         trackEdit,
-        aiSnapshot
+        aiSnapshot,
+        validated,
+        toggleValidation,
+        validateAll
     } = usePassageStore()
+    
+    // Validation helpers
+    const isValidated = (id: string) => validated.discourse.has(id)
+    const validatedCount = validated.discourse.size
+    const allValidated = discourse.length > 0 && discourse.every(d => validated.discourse.has(d.id))
     const [showModal, setShowModal] = useState(false)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
@@ -139,7 +161,35 @@ function Stage5Discourse() {
     const getEventDisplay = (eventId: string) => {
         // Look up by id (UUID) or eventId (e.g. "e1", "e2")
         const ev = events.find(e => e.id === eventId || e.eventId === eventId)
-        return ev ? { id: ev.eventId, core: ev.eventCore } : { id: eventId, core: 'Unknown' }
+        if (!ev) return { id: eventId, core: 'Unknown', category: 'ACTION', clause: null, roles: [] }
+        
+        // Find the associated clause for text display
+        const clause = passageData?.clauses?.find(c => c.clause_id?.toString() === ev.clauseId)
+        
+        // Get role information with participant names - filter out empty roles
+        const roles = (ev.roles || [])
+            .map(role => {
+                const participant = participants.find(p => 
+                    p.id === role.participantId || p.participantId === role.participantId
+                )
+                const gloss = participant?.gloss || role.participantId
+                return {
+                    role: role.role,
+                    participantId: role.participantId,
+                    participantGloss: gloss
+                }
+            })
+            .filter(role => role.participantGloss && role.participantGloss.trim() !== '')
+        
+        return { 
+            id: ev.eventId, 
+            core: ev.eventCore,
+            category: ev.category || 'ACTION',
+            discourseFunction: ev.discourseFunction,
+            narrativeFunction: ev.narrativeFunction,
+            clause,
+            roles
+        }
     }
 
     const handleFinalize = async () => {
@@ -196,42 +246,147 @@ function Stage5Discourse() {
                 </div>
             )}
 
+            {/* Validation summary */}
+            {discourse.length > 0 && (
+                <div className="flex items-center justify-between bg-areia/20 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                        <CheckCircle2 className={`w-5 h-5 ${allValidated ? 'text-verde-claro' : 'text-areia'}`} />
+                        <span className="text-sm text-preto">
+                            <span className="font-semibold">{validatedCount}</span> of <span className="font-semibold">{discourse.length}</span> discourse relations validated
+                        </span>
+                        {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
+                    </div>
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => validateAll('discourse', discourse.map(d => d.id))}
+                        disabled={allValidated}
+                    >
+                        <Check className="w-4 h-4 mr-1" />
+                        Validate All
+                    </Button>
+                </div>
+            )}
+
             {/* Discourse relations */}
-            <div className="space-y-3">
+            <div className="space-y-4">
                 {discourse.map((d, idx) => {
                     const source = getEventDisplay(d.sourceId)
                     const target = getEventDisplay(d.targetId)
 
+                    // Helper to render an event box
+                    const EventBox = ({ event, side }: { event: typeof source, side: 'source' | 'target' }) => (
+                        <div className={`flex-1 rounded-lg border-2 overflow-hidden ${side === 'source' ? 'border-amber-200 bg-amber-50/50' : 'border-emerald-200 bg-emerald-50/50'}`}>
+                            {/* Header with ID and category */}
+                            <div className={`px-3 py-2 flex items-center justify-between ${side === 'source' ? 'bg-amber-100/50' : 'bg-emerald-100/50'}`}>
+                                <div className="flex items-center gap-2">
+                                    <Zap className={`w-4 h-4 ${side === 'source' ? 'text-amber-600' : 'text-emerald-600'}`} />
+                                    <span className="font-bold text-preto">{event.id}</span>
+                                    <span className="text-lg font-semibold text-verde">{event.core}</span>
+                                </div>
+                                <Badge className={`text-[10px] uppercase ${CATEGORY_COLORS[event.category] || 'bg-gray-100 text-gray-700'}`}>
+                                    {event.category}
+                                </Badge>
+                            </div>
+                            
+                            {/* Clause text if available */}
+                            {event.clause && (
+                                <div className="px-3 py-2 border-t border-areia/30">
+                                    <p className="text-right text-lg font-serif text-preto" dir="rtl">
+                                        {event.clause.text}
+                                    </p>
+                                    <p className="text-sm text-verde italic mt-1">
+                                        {event.clause.gloss}
+                                    </p>
+                                </div>
+                            )}
+                            
+                            {/* Roles */}
+                            {event.roles && event.roles.length > 0 && (
+                                <div className="px-3 py-2 border-t border-areia/30 bg-white/50">
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                        <Users className="w-3 h-3 text-verde/60" />
+                                        {event.roles.map((r, i) => (
+                                            <span key={i} className="text-xs">
+                                                <span className="text-verde/60">{r.role}:</span>{' '}
+                                                <span className="font-medium text-preto">{r.participantGloss}</span>
+                                                {i < event.roles.length - 1 && <span className="text-areia mx-1">•</span>}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Discourse/Narrative function badges */}
+                            {(event.discourseFunction || event.narrativeFunction) && (
+                                <div className="px-3 py-2 border-t border-areia/30 flex gap-2">
+                                    {event.discourseFunction && (
+                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                            📍 {event.discourseFunction}
+                                        </span>
+                                    )}
+                                    {event.narrativeFunction && (
+                                        <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                                            📖 {event.narrativeFunction}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )
+
                     return (
-                        <Card key={d.id || `d-${d.sourceId}-${d.targetId}-${idx}`} className="group">
+                        <Card 
+                            key={d.id || `d-${d.sourceId}-${d.targetId}-${idx}`} 
+                            className={`group transition-all ${isValidated(d.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
+                        >
                             <CardContent className="p-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4 flex-1">
-                                        {/* Source event */}
-                                        <div className="flex-1 bg-areia/20 rounded-lg p-3 text-center">
-                                            <span className="text-xs text-verde/60">{source.id}</span>
-                                            <p className="font-semibold text-preto">{source.core}</p>
+                                {/* Validation checkbox */}
+                                <div className="flex items-center gap-2 mb-3">
+                                    <button
+                                        onClick={() => toggleValidation('discourse', d.id)}
+                                        className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${
+                                            isValidated(d.id) 
+                                                ? 'bg-verde-claro/20 text-verde-claro' 
+                                                : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                        }`}
+                                    >
+                                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                            isValidated(d.id) 
+                                                ? 'border-verde-claro bg-verde-claro' 
+                                                : 'border-areia'
+                                        }`}>
+                                            {isValidated(d.id) && <Check className="w-3 h-3 text-white" />}
                                         </div>
+                                        <span className="text-xs font-medium">
+                                            {isValidated(d.id) ? 'Validated' : 'Click to validate'}
+                                        </span>
+                                    </button>
+                                </div>
+                                
+                                <div className="flex items-start gap-4">
+                                    {/* Source event */}
+                                    <EventBox event={source} side="source" />
 
-                                        {/* Relation */}
-                                        <div className="flex flex-col items-center gap-1 px-4">
-                                            <Badge variant="success" className="text-xs uppercase">
-                                                {d.relationType}
-                                            </Badge>
-                                            <ArrowRight className="w-5 h-5 text-telha" />
-                                        </div>
-
-                                        {/* Target event */}
-                                        <div className="flex-1 bg-areia/20 rounded-lg p-3 text-center">
-                                            <span className="text-xs text-verde/60">{target.id}</span>
-                                            <p className="font-semibold text-preto">{target.core}</p>
-                                        </div>
+                                    {/* Relation arrow */}
+                                    <div className="flex flex-col items-center justify-center gap-2 py-4 min-w-[120px]">
+                                        <Badge variant="success" className="text-xs uppercase font-bold px-3 py-1">
+                                            {d.relationType}
+                                        </Badge>
+                                        <ArrowRight className="w-8 h-8 text-telha" />
+                                        <span className="text-[10px] text-verde/60 text-center">
+                                            {DISCOURSE_RELATIONS.find(r => r.value === d.relationType)?.label.split('(')[1]?.replace(')', '') || ''}
+                                        </span>
                                     </div>
 
+                                    {/* Target event */}
+                                    <EventBox event={target} side="target" />
+
+                                    {/* Delete button */}
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="ml-4 opacity-0 group-hover:opacity-100 text-red-500"
+                                        className="opacity-0 group-hover:opacity-100 text-red-500 self-center"
                                         onClick={() => handleDelete(d.id)}
                                     >
                                         <Trash2 className="w-4 h-4" />
