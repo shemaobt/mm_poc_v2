@@ -103,6 +103,76 @@ export interface EventRoleBase {
     participantId: string | null
 }
 
+export interface EventModifier {
+    happened?: string
+    realness?: string
+    when?: string
+    viewpoint?: string
+    phase?: string
+    repetition?: string
+    onPurpose?: string
+    howKnown?: string
+    causation?: string
+}
+
+export interface SpeechAct {
+    type?: string
+    quotationType?: string
+}
+
+export interface EventPragmatic {
+    register?: string
+    socialAxis?: string
+    prominence?: string
+    pacing?: string
+}
+
+export interface EventEmotion {
+    id?: string
+    participantId?: string
+    primary: string
+    secondary?: string
+    intensity: string
+    source: string
+    confidence: string
+    notes?: string
+}
+
+export interface NarratorStance {
+    stance?: string
+}
+
+export interface AudienceResponse {
+    response?: string
+}
+
+export interface LARetrieval {
+    emotionTags?: string[]
+    eventTags?: string[]
+    registerTags?: string[]
+    discourseTags?: string[]
+    socialTags?: string[]
+}
+
+export interface Figurative {
+    isFigurative?: boolean
+    figureType?: string
+    sourceDomain?: string
+    targetDomain?: string
+    literalMeaning?: string
+    intendedMeaning?: string
+    transferability?: string
+    translationNote?: string
+}
+
+export interface KeyTerm {
+    id?: string
+    termId: string
+    sourceLemma: string
+    semanticDomain: string
+    consistency: string
+}
+
 export interface EventBase {
     eventId: string
     clauseId?: string
@@ -114,12 +184,31 @@ export interface EventBase {
     roles: EventRoleBase[]
 }
 
-export interface EventCreate extends EventBase { }
+export interface EventCreate extends EventBase {
+    modifiers?: EventModifier
+    speechAct?: SpeechAct
+    pragmatic?: EventPragmatic
+    emotions?: EventEmotion[]
+    narratorStance?: NarratorStance
+    audienceResponse?: AudienceResponse
+    laRetrieval?: LARetrieval
+    figurative?: Figurative
+    keyTerms?: KeyTerm[]
+}
 
 export interface EventResponse extends EventBase {
     id: string
     passageId: string
     roles: EventRoleBase[]
+    modifiers?: EventModifier
+    speechAct?: SpeechAct
+    pragmatic?: EventPragmatic
+    emotions?: EventEmotion[]
+    narratorStance?: NarratorStance
+    audienceResponse?: AudienceResponse
+    laRetrieval?: LARetrieval
+    figurative?: Figurative
+    keyTerms?: KeyTerm[]
 }
 
 export interface DiscourseRelationBase {
