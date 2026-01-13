@@ -377,6 +377,24 @@ model MetricsSummary {
 }
 
 // ============================================================
+// PERICOPES (Pre-defined passage references)
+// ============================================================
+
+model Pericope {
+  id           String   @id @default(uuid())
+  reference    String   @unique // e.g., "Ruth 1:1-6"
+  book         String   // e.g., "Ruth", "Genesis"
+  chapterStart Int
+  verseStart   Int
+  chapterEnd   Int?
+  verseEnd     Int?
+  createdAt    DateTime @default(now())
+
+  @@index([book])
+  @@map("pericopes")
+}
+
+// ============================================================
 // BHSA CACHE TABLES (for faster access)
 // ============================================================
 
