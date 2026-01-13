@@ -12,10 +12,11 @@ import AdminDashboard from './components/pages/AdminDashboard'
 import LoginPage from './components/pages/LoginPage'
 import SignupPage from './components/pages/SignupPage'
 import PendingApprovalPage from './components/pages/PendingApprovalPage'
-import { ChevronLeft, ChevronRight, FolderOpen } from 'lucide-react'
-import { Toaster } from 'sonner'
+import { ChevronLeft, ChevronRight, FolderOpen, Lock } from 'lucide-react'
+import { Toaster, toast } from 'sonner'
 import { SidebarProvider, useSidebar } from './contexts/SidebarContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { usePassageStore } from './stores/passageStore'
 import './styles/main.css'
 
 export type ViewType = 'analysis' | 'saved-maps' | 'admin-dashboard'
@@ -74,6 +75,9 @@ function MainApp() {
     const [currentView, setCurrentView] = useState<ViewType>('analysis')
     const [isCollapsed, setIsCollapsed] = useState(true)
     const { isAdmin } = useAuth()
+    
+    // Get validation state from store
+    const { participants, relations, events, validated, passageData } = usePassageStore()
 
     const stages = [
         { id: 1, component: Stage1Syntax },
@@ -85,13 +89,64 @@ function MainApp() {
 
     const CurrentStageComponent = stages.find(s => s.id === currentStage)?.component || Stage1Syntax
 
+    // Check if current stage is fully validated
+    const isStageValidated = (stage: number): boolean => {
+        switch (stage) {
+            case 1:
+                // Stage 1 is validated if we have passage data
+                return !!passageData?.id
+            case 2:
+                // Stage 2: all participants validated
+                return participants.length === 0 || participants.every(p => validated.participants.has(p.id))
+            case 3:
+                // Stage 3: all relations validated
+                return relations.length === 0 || relations.every(r => validated.relations.has(r.id))
+            case 4:
+                // Stage 4: all events validated
+                return events.length === 0 || events.every(e => validated.events.has(e.id))
+            case 5:
+                // Stage 5 doesn't block (final stage)
+                return true
+            default:
+                return true
+        }
+    }
+    
+    const getValidationMessage = (stage: number): string => {
+        switch (stage) {
+            case 1:
+                return 'Please load a passage before proceeding.'
+            case 2:
+                const unvalidatedParticipants = participants.filter(p => !validated.participants.has(p.id)).length
+                return `Please validate all participants (${unvalidatedParticipants} remaining).`
+            case 3:
+                const unvalidatedRelations = relations.filter(r => !validated.relations.has(r.id)).length
+                return `Please validate all relations (${unvalidatedRelations} remaining).`
+            case 4:
+                const unvalidatedEvents = events.filter(e => !validated.events.has(e.id)).length
+                return `Please validate all events (${unvalidatedEvents} remaining).`
+            default:
+                return 'Please complete all validations before proceeding.'
+        }
+    }
+
     const goToPrevious = () => {
         if (currentStage > 1) setCurrentStage(currentStage - 1)
     }
 
     const goToNext = () => {
-        if (currentStage < 5) setCurrentStage(currentStage + 1)
+        if (currentStage < 5) {
+            if (!isStageValidated(currentStage)) {
+                toast.error('Validation Required', {
+                    description: getValidationMessage(currentStage)
+                })
+                return
+            }
+            setCurrentStage(currentStage + 1)
+        }
     }
+    
+    const canProceed = isStageValidated(currentStage)
 
     // Redirect non-admins away from dashboard
     if (currentView === 'admin-dashboard' && !isAdmin) {
@@ -187,10 +242,13 @@ function MainApp() {
                             pointer-events-auto flex items-center gap-2 px-5 py-3 rounded-full font-semibold shadow-lg transition-all duration-200
                             ${currentStage === 5
                                 ? 'bg-areia/50 text-verde/40 cursor-not-allowed'
-                                : 'bg-telha text-white hover:bg-telha-dark hover:shadow-xl active:scale-95'
+                                : canProceed
+                                    ? 'bg-telha text-white hover:bg-telha-dark hover:shadow-xl active:scale-95'
+                                    : 'bg-amber-500 text-white hover:bg-amber-600 hover:shadow-xl active:scale-95'
                             }
                         `}
                     >
+                        {!canProceed && currentStage < 5 && <Lock className="w-4 h-4" />}
                         Next
                         <ChevronRight className="w-5 h-5" />
                     </button>
