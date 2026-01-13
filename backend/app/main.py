@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import connect_db, disconnect_db
-from app.api import passages, participants, relations, events, discourse, bhsa, ai, export, metrics, auth, users
+from app.api import passages, participants, relations, events, discourse, bhsa, ai, export, metrics, auth, users, pericopes
 from app.services.bhsa_service import get_bhsa_service
 import threading
 
@@ -66,6 +66,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
     app.include_router(users.router, prefix="/api/users", tags=["Users"])
     app.include_router(bhsa.router, prefix="/api/bhsa", tags=["BHSA"])
+    app.include_router(pericopes.router, tags=["Pericopes"])
     app.include_router(passages.router, prefix="/api/passages", tags=["Passages"])
     app.include_router(participants.router, prefix="/api", tags=["Participants"])
     app.include_router(relations.router, prefix="/api", tags=["Relations"])
