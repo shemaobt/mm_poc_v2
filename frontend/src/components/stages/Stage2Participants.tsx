@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import { ParticipantResponse, ParticipantCreate } from '../../types'
 import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
@@ -10,9 +11,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog'
 import { Users, Plus, Pencil, Trash2, Loader2, Check, CheckCircle2 } from 'lucide-react'
 
-const PARTICIPANT_TYPES = ['person', 'group', 'divine', 'animal', 'plant', 'object', 'place', 'abstract', 'time', 'event']
-const QUANTITIES = ['one', 'two', 'few', 'many', 'all', 'mass', 'unknown']
-const REFERENCE_STATUS = ['new_mention', 'known', 'pointed', 'kind']
+// Extended to include AI-generated variations
+const PARTICIPANT_TYPES = [
+    'person', 'group', 'divine', 'animal', 'plant', 'object', 'place', 'abstract', 'time', 'event',
+    // Extended types the AI may generate
+    'collective_human', 'collective', 'human', 'thing', 'stuff', 'time_entity', 'idea', 'location',
+    'deity', 'entity', 'concept', 'material', 'substance', 'structure', 'building'
+]
+const QUANTITIES = [
+    'one', 'two', 'few', 'many', 'all', 'mass', 'unknown',
+    // Extended quantities the AI may generate
+    'unified_set', 'collective', 'dual', 'plural', 'singular', 'pair', 'multiple', 'some', 'none'
+]
+const REFERENCE_STATUS = [
+    'new_mention', 'known', 'pointed', 'kind',
+    // Extended statuses the AI may generate (including short forms)
+    'new', 'old', 'given', 'accessible', 'inferrable', 'brand_new', 'unused', 'active', 'semi_active'
+]
 const PROPERTY_DIMENSIONS: Record<string, string[]> = {
     "color": ["red", "blue", "green", "yellow", "black", "white", "brown", "golden", "purple", "gray", "scarlet", "crimson"],
     "size": ["big", "small", "tall", "short", "long", "wide", "narrow", "thick", "thin", "huge", "tiny"],
@@ -23,7 +38,16 @@ const PROPERTY_DIMENSIONS: Record<string, string[]> = {
     "social_status": ["rich", "poor", "powerful", "weak", "honored", "despised", "noble", "common", "free", "slave"],
     "physical_state": ["strong", "weak", "beautiful", "plain", "blind", "deaf", "lame", "barren", "fertile"],
     "emotional_state": ["happy", "sad", "angry", "afraid", "peaceful", "anxious", "hopeful", "despairing"],
-    "shape": []
+    "shape": [],
+    // Extended dimensions for AI-generated properties
+    "unity": ["unified", "divided", "scattered", "one", "many"],
+    "language": ["one_language", "many_languages", "same_language", "different_languages"],
+    "function": ["communication", "speech_content", "material", "structural", "ceremonial", "religious"],
+    "terrain": ["flat_plain", "mountain", "valley", "river", "desert", "plain", "hill", "coastal"],
+    "region": ["Mesopotamia", "Canaan", "Egypt", "Babylon", "Shinar", "Assyria", "Persia"],
+    "direction": ["east", "west", "north", "south", "up", "down"],
+    "material": ["stone", "brick", "clay", "wood", "metal", "gold", "silver", "bronze", "iron"],
+    "purpose": ["dwelling", "worship", "defense", "storage", "monument"]
 }
 
 function Stage2Participants() {
@@ -41,10 +65,12 @@ function Stage2Participants() {
         toggleValidation,
         validateAll
     } = usePassageStore()
-    
+
+    const { isAdmin } = useAuth()
+
     // Validation helpers
     const isValidated = (id: string) => validated.participants.has(id)
-    const validatedCount = validated.participants.size
+    const validatedCount = participants.filter(p => validated.participants.has(p.id)).length
     const allValidated = participants.length > 0 && participants.every(p => validated.participants.has(p.id))
     const [showModal, setShowModal] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
@@ -260,23 +286,25 @@ function Stage2Participants() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => validateAll('participants', participants.map(p => p.id))}
-                        disabled={allValidated}
-                    >
-                        <Check className="w-4 h-4 mr-1" />
-                        Validate All
-                    </Button>
+                    {isAdmin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => validateAll('participants', participants.map(p => p.id))}
+                            disabled={allValidated}
+                        >
+                            <Check className="w-4 h-4 mr-1" />
+                            Validate All
+                        </Button>
+                    )}
                 </div>
             )}
 
             {/* Participants grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {participants.map((p, index) => (
-                    <Card 
-                        key={p.id || `temp-${p.participantId}-${index}`} 
+                    <Card
+                        key={p.id || `temp-${p.participantId}-${index}`}
                         className={`group transition-all ${isValidated(p.id) ? 'border-verde-claro/50 bg-verde-claro/5' : 'hover:border-telha/30'}`}
                     >
                         <CardContent className="p-4">
@@ -284,17 +312,15 @@ function Stage2Participants() {
                             <div className="flex items-center justify-between mb-3">
                                 <button
                                     onClick={() => toggleValidation('participants', p.id)}
-                                    className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${
-                                        isValidated(p.id) 
-                                            ? 'bg-verde-claro/20 text-verde-claro' 
-                                            : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                    }`}
+                                    className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(p.id)
+                                        ? 'bg-verde-claro/20 text-verde-claro'
+                                        : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                        }`}
                                 >
-                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                                        isValidated(p.id) 
-                                            ? 'border-verde-claro bg-verde-claro' 
-                                            : 'border-areia'
-                                    }`}>
+                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(p.id)
+                                        ? 'border-verde-claro bg-verde-claro'
+                                        : 'border-areia'
+                                        }`}>
                                         {isValidated(p.id) && <Check className="w-3 h-3 text-white" />}
                                     </div>
                                     <span className="text-xs font-medium">

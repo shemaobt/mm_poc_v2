@@ -32,50 +32,48 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
         setLoading(true)
         setError(null)
         setStatus('processing')
-        setCurrentStep(0)
-
-        // Simulate step progression
-        const stepInterval = setInterval(() => {
-            setCurrentStep(prev => Math.min(prev + 1, steps.length - 1))
-        }, 2000)
 
         try {
-            // No API key needed - backend uses configured key
-            const response = await bhsaAPI.aiPrefill(passageData.reference, '')
-            const data = response.data
+            // STEP 0: Analysis Started
+            setCurrentStep(0)
 
-            clearInterval(stepInterval)
-            setCurrentStep(steps.length)
+            // STEP 1: Phase 1 (Participants & Relations)
+            setCurrentStep(1)
+            const phase1Resp = await bhsaAPI.aiPhase1(passageData.reference, '')
+            const phase1Data = phase1Resp.data
 
-            // Create snapshot for metrics tracking
+            // Update store incrementally
+            if (phase1Data.participants) setParticipants(phase1Data.participants)
+            if (phase1Data.relations) setRelations(phase1Data.relations)
+
+            // STEP 2: Identifying/Mapping Relations (Visual Step, quick transition)
+            setCurrentStep(2)
+            await new Promise(r => setTimeout(r, 500))
+
+            // STEP 3: Phase 2 (Events & Discourse) - This uses Context from Phase 1
+            setCurrentStep(3)
+            const phase2Resp = await bhsaAPI.aiPhase2(passageData.reference, '')
+            const phase2Data = phase2Resp.data
+
+            // Update store with events/discourse
+            if (phase2Data.events) setEvents(phase2Data.events)
+            if (phase2Data.discourse) setDiscourse(phase2Data.discourse)
+
+            // STEP 4: Finalizing
+            setCurrentStep(4)
+
+            // Create snapshot for metrics tracking (Combined data)
+            const combinedData = { ...phase1Data, ...phase2Data }
+
             try {
                 if (passageData?.id) {
-                    // Log the snapshot data we are about to send to debug potential 422 errors
                     console.log('Sending snapshot data for passage:', passageData.id)
-
-                    const snapshotResponse = await metricsAPI.createSnapshot(passageData.id, {
-                        participants: data.participants,
-                        relations: data.relations,
-                        events: data.events,
-                        discourse: data.discourse
-                    })
-                    setAiSnapshot(data, snapshotResponse.snapshotId)
-                } else {
-                    console.error('Missing passageData.id, skipping snapshot creation')
+                    const snapshotResponse = await metricsAPI.createSnapshot(passageData.id, combinedData)
+                    setAiSnapshot(combinedData, snapshotResponse.snapshotId)
                 }
             } catch (snapErr: any) {
                 console.warn('Failed to create AI snapshot:', snapErr)
-                if (snapErr.response) {
-                    console.warn('Snapshot error response:', snapErr.response.data)
-                }
-                // Continue even if snapshot fails
             }
-
-            // Apply data to store
-            if (data.participants) setParticipants(data.participants)
-            if (data.relations) setRelations(data.relations)
-            if (data.events) setEvents(data.events)
-            if (data.discourse) setDiscourse(data.discourse)
 
             setStatus('success')
             setTimeout(() => {
@@ -85,7 +83,6 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
             }, 1500)
 
         } catch (err: any) {
-            clearInterval(stepInterval)
             console.error('AI Analysis failed:', err)
             setError(err.response?.data?.detail || 'AI Analysis failed. Please try again.')
             setStatus('idle')

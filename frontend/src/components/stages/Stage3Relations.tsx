@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import { RelationCreate } from '../../types'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
@@ -27,10 +28,12 @@ function Stage3Relations() {
         toggleValidation,
         validateAll
     } = usePassageStore()
-    
+
+    const { isAdmin } = useAuth()
+
     // Validation helpers
     const isValidated = (id: string) => validated.relations.has(id)
-    const validatedCount = validated.relations.size
+    const validatedCount = relations.filter(r => validated.relations.has(r.id)).length
     const allValidated = relations.length > 0 && relations.every(r => validated.relations.has(r.id))
     const [formData, setFormData] = useState<RelationCreate>({
         category: 'kinship',
@@ -174,20 +177,22 @@ function Stage3Relations() {
                                     </span>
                                     {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                                 </div>
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    onClick={() => validateAll('relations', relations.map(r => r.id))}
-                                    disabled={allValidated}
-                                >
-                                    <Check className="w-4 h-4 mr-1" />
-                                    Validate All
-                                </Button>
+                                {isAdmin && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => validateAll('relations', relations.map(r => r.id))}
+                                        disabled={allValidated}
+                                    >
+                                        <Check className="w-4 h-4 mr-1" />
+                                        Validate All
+                                    </Button>
+                                )}
                             </div>
 
                             {relations.map(r => (
-                                <Card 
-                                    key={r.id || `${r.sourceId}-${r.targetId}`} 
+                                <Card
+                                    key={r.id || `${r.sourceId}-${r.targetId}`}
                                     className={`group transition-all ${isValidated(r.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
                                 >
                                     <CardContent className="p-4">
@@ -195,17 +200,15 @@ function Stage3Relations() {
                                             {/* Validation checkbox */}
                                             <button
                                                 onClick={() => toggleValidation('relations', r.id)}
-                                                className={`flex items-center gap-2 px-2 py-1 rounded transition-all mr-4 ${
-                                                    isValidated(r.id) 
-                                                        ? 'bg-verde-claro/20 text-verde-claro' 
-                                                        : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                                }`}
+                                                className={`flex items-center gap-2 px-2 py-1 rounded transition-all mr-4 ${isValidated(r.id)
+                                                    ? 'bg-verde-claro/20 text-verde-claro'
+                                                    : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                                    }`}
                                             >
-                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                                                    isValidated(r.id) 
-                                                        ? 'border-verde-claro bg-verde-claro' 
-                                                        : 'border-areia'
-                                                }`}>
+                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(r.id)
+                                                    ? 'border-verde-claro bg-verde-claro'
+                                                    : 'border-areia'
+                                                    }`}>
                                                     {isValidated(r.id) && <Check className="w-3 h-3 text-white" />}
                                                 </div>
                                             </button>

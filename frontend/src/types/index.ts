@@ -18,6 +18,7 @@ export interface Clause {
     objects?: string[]
     has_ki: boolean
     names?: string[]
+    freeTranslation?: string
 }
 
 export interface PassageData {
