@@ -22,20 +22,29 @@ export const EVENT_CATEGORIES = [
 // SEMANTIC ROLES
 // ============================================================
 export const SEMANTIC_ROLES = [
+    // Core thematic roles
     { value: 'doer', label: 'Doer (agent)' },
     { value: 'undergoer', label: 'Undergoer (patient)' },
     { value: 'feeler', label: 'Feeler (experiencer)' },
     { value: 'receiver', label: 'Receiver' },
+    { value: 'recipient', label: 'Recipient' },
     { value: 'causer', label: 'Causer' },
     { value: 'beneficiary', label: 'Beneficiary' },
     { value: 'instrument', label: 'Instrument' },
+    // Location/direction roles
     { value: 'location', label: 'Location' },
     { value: 'goal', label: 'Goal/Destination' },
     { value: 'source', label: 'Source/Origin' },
+    { value: 'path', label: 'Path' },
+    // Temporal/manner roles
     { value: 'time', label: 'Time' },
     { value: 'manner', label: 'Manner' },
+    // Speech act roles
     { value: 'hearer', label: 'Hearer' },
+    { value: 'speaker', label: 'Speaker' },
     { value: 'message', label: 'Message' },
+    { value: 'addressee', label: 'Addressee' },
+    // Additional roles
     { value: 'companion', label: 'Companion' },
     { value: 'attribute', label: 'Attribute (property/state)' },
     { value: 'theme', label: 'Theme' },
@@ -44,7 +53,19 @@ export const SEMANTIC_ROLES = [
     { value: 'possessed', label: 'Possessed' },
     { value: 'content', label: 'Content (speech/thought)' },
     { value: 'result', label: 'Result' },
-    { value: 'cause', label: 'Cause' }
+    { value: 'cause', label: 'Cause' },
+    // Construction/creation roles
+    { value: 'builder', label: 'Builder' },
+    { value: 'product', label: 'Product (created thing)' },
+    { value: 'material', label: 'Material' },
+    // Exchange/substitution roles
+    { value: 'substitute_for', label: 'Substitute for' },
+    { value: 'price', label: 'Price' },
+    // Perception/cognition roles
+    { value: 'perceiver', label: 'Perceiver' },
+    { value: 'phenomenon', label: 'Phenomenon (perceived)' },
+    { value: 'cognizer', label: 'Cognizer' },
+    { value: 'topic', label: 'Topic' }
 ]
 
 // ============================================================
