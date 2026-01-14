@@ -2,9 +2,9 @@
 Metrics API Router
 Track edits to AI-generated content and provide dashboard statistics
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 from prisma import Json
 from app.core.database import get_db
@@ -143,27 +143,85 @@ async def log_edit(data: EditLogCreate):
     return {"status": "success"}
 
 @router.get("/aggregate")
-async def get_aggregate_metrics():
-    """Get global aggregated metrics for admin dashboard"""
+async def get_aggregate_metrics(
+    time_range: Optional[str] = Query(None, description="Time range filter: 'today', 'week', 'month', 'all'"),
+    start_date: Optional[str] = Query(None, description="Start date (ISO format: YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (ISO format: YYYY-MM-DD)")
+):
+    """
+    Get global aggregated metrics for admin dashboard.
+    Supports time filtering by predefined ranges or custom date range.
+    
+    Time filtering applies to:
+    - EditLog.createdAt for edits (modified, deleted, added counts)
+    - AISnapshot.createdAt for AI item counts
+    - Passage.createdAt for passage-level stats
+    """
     db = get_db()
     
-    # Get all summaries
-    summaries = await db.metricssummary.find_many(
-        include={"passage": True}
+    # Calculate date filter
+    date_filter = None
+    now = datetime.utcnow()
+    
+    if time_range:
+        if time_range == "today":
+            date_filter = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif time_range == "week":
+            date_filter = now - timedelta(days=7)
+        elif time_range == "month":
+            date_filter = now - timedelta(days=30)
+        # 'all' means no filter
+    elif start_date:
+        try:
+            date_filter = datetime.fromisoformat(start_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+    
+    end_date_filter = None
+    if end_date:
+        try:
+            end_date_filter = datetime.fromisoformat(end_date).replace(hour=23, minute=59, second=59)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+    
+    # Build date where clause
+    date_where: Dict[str, Any] = {}
+    if date_filter:
+        date_where["createdAt"] = {"gte": date_filter}
+        if end_date_filter:
+            date_where["createdAt"] = {
+                "gte": date_filter,
+                "lte": end_date_filter
+            }
+    elif end_date_filter:
+        date_where["createdAt"] = {"lte": end_date_filter}
+    
+    # ========================================
+    # Calculate totals from EditLog (with timestamps)
+    # ========================================
+    
+    # Count edits by action type within the time range
+    edit_base_where: Dict[str, Any] = {}
+    if date_where:
+        edit_base_where = {**date_where}
+    
+    # Get all edit logs in the time range
+    all_edits = await db.editlog.find_many(
+        where=edit_base_where if edit_base_where else None
     )
     
-    total_ai_items = sum(s.aiItemCount for s in summaries)
-    total_modified = sum(s.modifiedCount for s in summaries)
-    total_deleted = sum(s.deletedCount for s in summaries)
-    total_added = sum(s.addedCount for s in summaries)
+    # Calculate totals from actual edit logs
+    total_modified = sum(1 for e in all_edits if e.action == "update" and e.isAiGenerated)
+    total_deleted = sum(1 for e in all_edits if e.action == "delete" and e.isAiGenerated)
+    total_added = sum(1 for e in all_edits if e.action == "create")
     
-    # Aggregated fields changed
-    all_fields_changed = {}
-    for s in summaries:
-        if s.fieldsChanged:
-            for field, count in s.fieldsChanged.items():
-                all_fields_changed[field] = all_fields_changed.get(field, 0) + count
-                
+    # Calculate fields changed from edit logs
+    all_fields_changed: Dict[str, int] = {}
+    for e in all_edits:
+        if e.action == "update" and e.isAiGenerated and e.fieldName:
+            key = f"{e.entityType}.{e.fieldName}"
+            all_fields_changed[key] = all_fields_changed.get(key, 0) + 1
+    
     # Sort fields by frequency
     sorted_fields = sorted(
         [{"field": k, "count": v} for k, v in all_fields_changed.items()], 
@@ -171,12 +229,39 @@ async def get_aggregate_metrics():
         reverse=True
     )
     
-    # Get recent logs for value patterns
+    # ========================================
+    # Count AI items from AISnapshot (with timestamps)
+    # ========================================
+    
+    snapshot_where: Dict[str, Any] = {}
+    if date_where:
+        snapshot_where = {**date_where}
+    
+    snapshots = await db.aisnapshot.find_many(
+        where=snapshot_where if snapshot_where else None
+    )
+    
+    total_ai_items = 0
+    for s in snapshots:
+        if s.snapshotData and isinstance(s.snapshotData, dict):
+            total_ai_items += len(s.snapshotData.get("participants", []))
+            total_ai_items += len(s.snapshotData.get("events", []))
+            total_ai_items += len(s.snapshotData.get("relations", []))
+            total_ai_items += len(s.snapshotData.get("discourse", []))
+    
+    # ========================================
+    # Get recent value changes from EditLog
+    # ========================================
+    
+    log_where: Dict[str, Any] = {
+        "action": "update",
+        "isAiGenerated": True
+    }
+    if date_where:
+        log_where = {**log_where, **date_where}
+    
     recent_logs = await db.editlog.find_many(
-        where={
-            "action": "update",
-            "isAiGenerated": True
-        },
+        where=log_where,
         take=50,
         order={"createdAt": "desc"}
     )
@@ -186,10 +271,36 @@ async def get_aggregate_metrics():
             "entity": l.entityType,
             "field": l.fieldName,
             "from": l.oldValue,
-            "to": l.newValue
+            "to": l.newValue,
+            "timestamp": l.createdAt.isoformat()
         }
         for l in recent_logs
     ]
+    
+    # ========================================
+    # Get passage-level stats
+    # ========================================
+    
+    # For passage stats, we get summaries but also filter by passage creation date if needed
+    passage_where: Dict[str, Any] = {}
+    if date_where:
+        passage_where = {**date_where}
+    
+    if passage_where:
+        filtered_passages = await db.passage.find_many(where=passage_where)
+        passage_ids = [p.id for p in filtered_passages]
+        
+        if passage_ids:
+            summaries = await db.metricssummary.find_many(
+                where={"passageId": {"in": passage_ids}},
+                include={"passage": True}
+            )
+        else:
+            summaries = []
+    else:
+        summaries = await db.metricssummary.find_many(
+            include={"passage": True}
+        )
     
     return {
         "totals": {
@@ -203,12 +314,21 @@ async def get_aggregate_metrics():
         "recent_value_changes": value_changes,
         "passage_stats": [
             {
-                "reference": s.passage.reference,
+                "reference": s.passage.reference if s.passage else "Unknown",
                 "modified": s.modifiedCount,
                 "deleted": s.deletedCount,
                 "added": s.addedCount,
-                "ai_count": s.aiItemCount
+                "ai_count": s.aiItemCount,
+                "created_at": s.passage.createdAt.isoformat() if s.passage else None,
+                "updated_at": s.updatedAt.isoformat() if s.updatedAt else None
             }
             for s in summaries
-        ]
+        ],
+        "filter_applied": {
+            "time_range": time_range,
+            "start_date": start_date,
+            "end_date": end_date,
+            "date_filter_from": date_filter.isoformat() if date_filter else None,
+            "date_filter_to": end_date_filter.isoformat() if end_date_filter else None
+        }
     }
