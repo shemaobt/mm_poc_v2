@@ -448,6 +448,43 @@ function Stage4Events() {
         return colors[cat] || 'bg-gray-100 text-gray-800 border-gray-200'
     }
 
+    // Helper to check field presence for indicators
+    const getFieldIndicators = (ev: EventResponse) => {
+        const validRoles = (ev.roles || []).filter(r => {
+            const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
+            return p && p.gloss && p.gloss.trim() !== ''
+        })
+        
+        const hasModifiers = ev.modifiers && Object.values(ev.modifiers).some(v => v !== null && v !== undefined && v !== '')
+        const hasSpeechAct = ev.speechAct && (ev.speechAct.type || ev.speechAct.quotationType)
+        const hasPragmatic = ev.pragmatic && Object.values(ev.pragmatic).some(v => v !== null && v !== undefined && v !== '')
+        const hasNarratorStance = ev.narratorStance && ev.narratorStance.stance
+        const hasAudienceResponse = ev.audienceResponse && ev.audienceResponse.response
+        const hasFigurative = ev.figurative && ev.figurative.isFigurative
+        const hasLaTags = ev.laRetrieval && (
+            (ev.laRetrieval.emotionTags?.length || 0) > 0 ||
+            (ev.laRetrieval.eventTags?.length || 0) > 0 ||
+            (ev.laRetrieval.registerTags?.length || 0) > 0 ||
+            (ev.laRetrieval.discourseTags?.length || 0) > 0 ||
+            (ev.laRetrieval.socialTags?.length || 0) > 0
+        )
+        const emotionsCount = (ev.emotions || []).length
+        const keyTermsCount = (ev.keyTerms || []).length
+        
+        return {
+            roles: validRoles.length,
+            modifiers: hasModifiers,
+            speechAct: hasSpeechAct,
+            pragmatic: hasPragmatic,
+            narratorStance: hasNarratorStance,
+            audienceResponse: hasAudienceResponse,
+            figurative: hasFigurative,
+            laTags: hasLaTags,
+            emotions: emotionsCount,
+            keyTerms: keyTermsCount
+        }
+    }
+
     if (!passageData) {
         return (
             <Card className="border-dashed">
@@ -612,6 +649,79 @@ function Stage4Events() {
                                                 })}
                                         </div>
                                     )}
+
+                                    {/* Field presence indicators */}
+                                    {(() => {
+                                        const indicators = getFieldIndicators(ev)
+                                        const filledCount = [
+                                            indicators.roles > 0,
+                                            indicators.modifiers,
+                                            indicators.speechAct,
+                                            indicators.pragmatic,
+                                            indicators.emotions > 0,
+                                            indicators.narratorStance || indicators.audienceResponse,
+                                            indicators.figurative,
+                                            indicators.keyTerms > 0,
+                                            indicators.laTags
+                                        ].filter(Boolean).length
+                                        const totalFields = 9
+
+                                        return (
+                                            <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-areia/20">
+                                                <span className="text-[10px] text-verde/60 mr-1">Fields:</span>
+                                                
+                                                {/* Roles */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.roles > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    👥 {indicators.roles}
+                                                </span>
+                                                
+                                                {/* Modifiers */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.modifiers ? 'bg-slate-100 text-slate-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    ⚙️ Mod
+                                                </span>
+                                                
+                                                {/* Speech Act */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.speechAct ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    💬 Speech
+                                                </span>
+                                                
+                                                {/* Pragmatic */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.pragmatic ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    🗣️ Prag
+                                                </span>
+                                                
+                                                {/* Emotions */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.emotions > 0 ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    💖 {indicators.emotions}
+                                                </span>
+                                                
+                                                {/* Narrator/Audience */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${(indicators.narratorStance || indicators.audienceResponse) ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    🎭 N/A
+                                                </span>
+                                                
+                                                {/* Figurative */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.figurative ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    🎨 Fig
+                                                </span>
+                                                
+                                                {/* Key Terms */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.keyTerms > 0 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    🔑 {indicators.keyTerms}
+                                                </span>
+                                                
+                                                {/* LA Tags */}
+                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.laTags ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
+                                                    📦 LA
+                                                </span>
+                                                
+                                                {/* Summary */}
+                                                <span className="text-[10px] text-verde/50 ml-2">
+                                                    ({filledCount}/{totalFields})
+                                                </span>
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
 
                                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
