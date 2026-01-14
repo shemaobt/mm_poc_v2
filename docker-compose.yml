@@ -18,7 +18,7 @@ services:
       - ./backend:/app
       - tf_data:/root/text-fabric-data
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
-    command: bash entrypoint.sh
+    command: bash entrypoint.sh uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
     build:
