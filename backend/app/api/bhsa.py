@@ -6,10 +6,11 @@ import os
 import shutil
 import zipfile
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Depends
 from pydantic import BaseModel
 
 from app.services.bhsa_service import get_bhsa_service, parse_reference
+from app.core.database import get_db
 
 router = APIRouter()
 
@@ -119,9 +120,10 @@ async def upload_bhsa_data(
 
 
 @router.get("/passage")
-async def fetch_passage(ref: str):
+async def fetch_passage(ref: str, db = Depends(get_db)):
     """
-    Fetch passage data from BHSA
+    Fetch passage data from BHSA and sync with DB for translations.
+    Triggers AI translation if not present in DB.
     
     Args:
         ref: Biblical reference, e.g., "Ruth 1:1-6"
@@ -135,17 +137,105 @@ async def fetch_passage(ref: str):
         )
     
     try:
-        # Parse reference
+        # 1. Parse reference
         book, chapter, start_verse, end_verse = parse_reference(ref)
         
-        # Extract passage
+        # 2. Extract passage from TF (Source of Truth for Structure)
         passage_data = bhsa_service.extract_passage(
             book, chapter, start_verse, end_verse
         )
+        
+        # 3. FAST DB SYNC
+        # We need to ensure this passage exists in DB to store translations
+        # Check if exists
+        passage = await db.passage.find_unique(
+            where={"reference": passage_data["reference"]},
+            include={"clauses": True}
+        )
+        
+        # If not, create it (lazy sync)
+        if not passage:
+            print(f"[Sync] Creating new passage in DB: {passage_data['reference']}")
+            passage = await db.passage.create(
+                data={
+                    "reference": passage_data["reference"],
+                }
+            )
+            
+            # Create clauses
+            clauses_to_create = []
+            for i, c in enumerate(passage_data["clauses"]):
+                clauses_to_create.append({
+                    "passageId": passage.id,
+                    "clauseIndex": i,
+                    "verse": c["verse"],
+                    "text": c["text"],
+                    "gloss": c["gloss"],
+                    "clauseType": c["clause_type"],
+                })
+            
+            # Batch create clauses (Prisma python might not support create_many well, check)
+            # Using loop for safety if create_many has issues in this version
+            for c_data in clauses_to_create:
+                 await db.clause.create(data=c_data)
+                 
+            # Re-fetch with clauses
+            passage = await db.passage.find_unique(
+                where={"id": passage.id},
+                include={"clauses": True}
+            )
+
+        # 4. Check/Fetch Translations
+        # Map existing translations: clauseIndex -> translation
+        db_translations = {c.clauseIndex: c.freeTranslation for c in passage.clauses if c.freeTranslation}
+        
+        missing_count = len(passage_data["clauses"]) - len(db_translations)
+        
+        # If we have missing translations, generate them automatically (One-time cost)
+        if missing_count > 0:
+            print(f"[Auto-Translate] {missing_count} clauses missing translations. Generating...")
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            
+            if api_key:
+                from app.services.ai_service import AIService
+                try:
+                    translations = await AIService.translate_clauses(passage_data, api_key)
+                    
+                    # Update DB
+                    for cid_str, trans_text in translations.items():
+                        try:
+                            # Map 1-based AI ID to 0-based DB index
+                            idx = int(cid_str) - 1
+                            if 0 <= idx < len(passage.clauses):
+                                target_clause = next((c for c in passage.clauses if c.clauseIndex == idx), None)
+                                if target_clause:
+                                    await db.clause.update(
+                                        where={"id": target_clause.id},
+                                        data={"freeTranslation": trans_text}
+                                    )
+                                    db_translations[idx] = trans_text
+                        except ValueError:
+                            pass
+                except Exception as e:
+                    print(f"[Auto-Translate] Failed: {e}")
+                    # Continue without translation, don't block
+            else:
+                print("[Auto-Translate] Skipped: No API Key")
+
+        # 5. Merge Translations into Response
+        # We inject 'freeTranslation' into the TF-data structure for the frontend
+        for i, c in enumerate(passage_data["clauses"]):
+            if i in db_translations:
+                c["freeTranslation"] = db_translations[i]
+        
+        # 6. Include passage ID in response so frontend doesn't need to create again
+        passage_data["id"] = passage.id
+        passage_data["passage_id"] = passage.id  # Alias for clarity
         
         return passage_data
     
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"Fetch error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI, passagesAPI, pericopesAPI, Pericope } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import AIProcessingModal from '../common/AIProcessingModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
-import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter } from 'lucide-react'
+import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter, Check } from 'lucide-react'
 
 interface ExistingPassage {
     id: string
@@ -16,13 +17,17 @@ interface ExistingPassage {
 }
 
 function Stage1Syntax() {
-    const { passageData, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError } = usePassageStore()
+    const { passageData, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError, clearPassage } = usePassageStore()
     const [reference, setReference] = useState('')
     const [loadingMessage, setLoadingMessage] = useState('')
     const [showAIModal, setShowAIModal] = useState(false)
     const [existingPassages, setExistingPassages] = useState<ExistingPassage[]>([])
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
-    
+    const [translating, setTranslating] = useState(false)
+    const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
+    const { isAdmin } = useAuth()
+
+
     // Pericopes state
     const [pericopes, setPericopes] = useState<Pericope[]>([])
     const [books, setBooks] = useState<string[]>([])
@@ -40,7 +45,7 @@ function Stage1Syntax() {
         fetchBooks()
         fetchPericopes()
     }, [])
-    
+
     // Close dropdown when clicking outside
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -51,12 +56,12 @@ function Stage1Syntax() {
         document.addEventListener('mousedown', handleClickOutside)
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [])
-    
+
     // Fetch pericopes when book or search changes
     useEffect(() => {
         fetchPericopes()
     }, [selectedBook, searchTerm])
-    
+
     const fetchBooks = async () => {
         try {
             const bookList = await pericopesAPI.getBooks()
@@ -65,7 +70,7 @@ function Stage1Syntax() {
             console.error('Failed to fetch books:', err)
         }
     }
-    
+
     const fetchPericopes = async () => {
         try {
             const params: { book?: string; search?: string; limit?: number } = { limit: 50 }
@@ -77,7 +82,7 @@ function Stage1Syntax() {
             console.error('Failed to fetch pericopes:', err)
         }
     }
-    
+
     const handleSelectPericope = (pericope: Pericope) => {
         setSelectedPericope(pericope)
         setReference(pericope.reference)
@@ -175,43 +180,132 @@ function Stage1Syntax() {
         if (!reference.trim()) return
 
         try {
+            clearPassage() // Clear any existing data
             setLoading(true)
+            setLoadingMessage('Fetching passage from BHSA...')
             setError(null)
+            
+            // The BHSA endpoint creates the passage in DB and returns the ID
             const data = await bhsaAPI.fetchPassage(reference)
 
-            // Persist passage to get a real ID (and ensure clauses are in DB)
-            // We use the reference we just fetched
-            try {
-                // Ensure passagesAPI is imported (I will add import in next step if missing)
-                // But wait, I can use the imported variable if I verify it.
-                // Assuming passagesAPI is exported from api.ts (it is).
-                const persisted = await passagesAPI.create({
-                    reference: data.reference,
-                    sourceLang: 'hbo'
-                })
-
+            // BHSA endpoint now returns the passage ID - no need to create again
+            if (data.id || data.passage_id) {
                 setPassageData({
-                    id: persisted.id, // Use the real database ID
+                    id: data.id || data.passage_id,
                     reference: data.reference,
                     source_lang: data.source_lang || 'Hebrew',
                     clauses: data.clauses
                 })
-            } catch (persistErr) {
-                console.error("Failed to persist passage:", persistErr)
-                // Fallback: use data without ID? Or show error?
-                // If we don't have ID, next stages will fail.
-                setError("Failed to initialize passage session. Database error.")
+                setCheckedClauses(new Set()) // Reset checks for new passage
+                setLoadingMessage('')
+            } else {
+                // Fallback: if somehow ID is missing, try to create
+                console.warn("BHSA response missing passage ID, creating...")
+                try {
+                    const persisted = await passagesAPI.create({
+                        reference: data.reference,
+                        sourceLang: 'hbo'
+                    })
+                    setPassageData({
+                        id: persisted.id,
+                        reference: data.reference,
+                        source_lang: data.source_lang || 'Hebrew',
+                        clauses: data.clauses
+                    })
+                    setCheckedClauses(new Set())
+                } catch (persistErr) {
+                    console.error("Failed to persist passage:", persistErr)
+                    setError("Failed to initialize passage session. Database error.")
+                }
+                setLoadingMessage('')
             }
 
         } catch (err: any) {
             console.error('Failed to fetch passage:', err)
             setError(err.response?.data?.detail || 'Failed to fetch passage.')
+            setLoadingMessage('')
         } finally {
             setLoading(false)
         }
     }
 
+    // Auto-translate Logic
+    useEffect(() => {
+        if (!passageData || !passageData.clauses) return
+
+        // Check if we need translations (if any clause is missing freeTranslation)
+        const needsTranslation = passageData.clauses.some((c: any) => !c.freeTranslation)
+
+        if (needsTranslation && !translating) {
+            autoTranslate()
+        }
+    }, [passageData?.id]) // Run when passage ID changes (new passage loaded)
+
+    const autoTranslate = async () => {
+        if (!passageData?.reference) return
+
+        try {
+            setTranslating(true)
+            // Use a default key or the one from env if feasible, but backend handles it mostly.
+            // Actually api.ts translateClauses requires apiKey.
+            // The AIProcessingModal uses bhsaAPI.aiPrefill which takes apiKey.
+            // Ideally backend should handle key if not provided, but let's see.
+            // The backend endpoint checks os.getenv("ANTHROPIC_API_KEY").
+            // The frontend API method currently expects apiKey as 2nd arg.
+            // WORKAROUND: Pass empty string if backend is configured to use env var
+            // Wait, looking at api.ts: translateClauses: async (reference: string, apiKey: string)
+            // In backend ai.py: api_key = os.getenv("ANTHROPIC_API_KEY") if not passed?
+            // ai.py POST /translate_clauses:
+            // api_key = os.getenv("ANTHROPIC_API_KEY") 
+            // It ONLY looks at env var! It relies on backend env.
+            // The request model has 'api_key' optional but the code doesn't use it from request?
+            // Actually, my edit to ai.py:
+            // api_key = os.getenv("ANTHROPIC_API_KEY") (lines added)
+            // It ignores the request body api_key. So passing empty string is fine.
+
+            const result = await bhsaAPI.translateClauses(passageData.reference, "")
+
+            // Update local state with new translations
+            if (result.translations) {
+                setPassageData({
+                    ...passageData,
+                    clauses: passageData.clauses.map((c: any) => {
+                        // Match by clauseIndex (assuming result keys are 1-based indices)
+                        // This logic must match the backend logic or use ID if available.
+                        // Backend loops and updates DB.
+                        // Ideally we should reload the passage to get the definitive state
+                        // OR update locally accurately.
+                        // The backend returns { "1": "trans", "2": "trans" ... }
+                        // where keys are strings of (clauseIndex + 1).
+                        const key = (c.clauseIndex !== undefined ? c.clauseIndex + 1 : c.clause_id).toString()
+                        if (result.translations[key]) {
+                            return { ...c, freeTranslation: result.translations[key] }
+                        }
+                        return c
+                    })
+                })
+            }
+        } catch (err) {
+            console.error("Auto-translation failed:", err)
+        } finally {
+            setTranslating(false)
+        }
+    }
+
+    const toggleClauseCheck = (clauseId: string) => {
+        const newSet = new Set(checkedClauses)
+        if (newSet.has(clauseId)) {
+            newSet.delete(clauseId)
+        } else {
+            newSet.add(clauseId)
+        }
+        setCheckedClauses(newSet)
+    }
+
+    const allClausesChecked = passageData?.clauses ? passageData.clauses.every((c: any) => checkedClauses.has(c.clause_id?.toString() || c.id?.toString())) : false
+
     const mainlineClauses = passageData?.clauses?.filter(c => c.is_mainline) || []
+
     const backgroundClauses = passageData?.clauses?.filter(c => !c.is_mainline) || []
 
     return (
@@ -284,7 +378,7 @@ function Stage1Syntax() {
                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50 pointer-events-none" />
                             </div>
                         </div>
-                        
+
                         {/* Pericope search dropdown */}
                         <div className="flex-1 relative" ref={dropdownRef}>
                             <label className="text-xs text-verde/60 mb-1 block">Pericope Reference</label>
@@ -303,7 +397,7 @@ function Stage1Syntax() {
                                     className="pl-10"
                                 />
                             </div>
-                            
+
                             {/* Dropdown */}
                             {showDropdown && pericopes.length > 0 && (
                                 <div className="absolute z-50 w-full mt-1 bg-white border border-areia-escuro/20 rounded-lg shadow-lg max-h-64 overflow-y-auto">
@@ -311,9 +405,8 @@ function Stage1Syntax() {
                                         <button
                                             key={pericope.id}
                                             onClick={() => handleSelectPericope(pericope)}
-                                            className={`w-full text-left px-4 py-2.5 hover:bg-areia/30 transition-colors flex items-center justify-between gap-2 ${
-                                                selectedPericope?.id === pericope.id ? 'bg-telha/10 text-telha' : 'text-preto'
-                                            }`}
+                                            className={`w-full text-left px-4 py-2.5 hover:bg-areia/30 transition-colors flex items-center justify-between gap-2 ${selectedPericope?.id === pericope.id ? 'bg-telha/10 text-telha' : 'text-preto'
+                                                }`}
                                         >
                                             <span className="font-medium">{pericope.reference}</span>
                                             <span className="text-xs text-verde/50">{pericope.book}</span>
@@ -321,7 +414,7 @@ function Stage1Syntax() {
                                     ))}
                                 </div>
                             )}
-                            
+
                             {/* No results */}
                             {showDropdown && pericopes.length === 0 && searchTerm && (
                                 <div className="absolute z-50 w-full mt-1 bg-white border border-areia-escuro/20 rounded-lg shadow-lg p-4 text-center text-verde/60 text-sm">
@@ -329,11 +422,11 @@ function Stage1Syntax() {
                                 </div>
                             )}
                         </div>
-                        
+
                         {/* Fetch button */}
                         <div className="pt-5">
-                            <Button 
-                                onClick={handleFetchPassage} 
+                            <Button
+                                onClick={handleFetchPassage}
                                 disabled={loading || !bhsaLoaded || !selectedPericope}
                                 title={!selectedPericope ? 'Please select a pericope from the list' : ''}
                             >
@@ -341,7 +434,7 @@ function Stage1Syntax() {
                             </Button>
                         </div>
                     </div>
-                    
+
                     {/* Selected pericope indicator */}
                     {selectedPericope && (
                         <div className="mt-3 flex items-center gap-2">
@@ -417,10 +510,34 @@ function Stage1Syntax() {
                                 Background: {backgroundClauses.length}
                             </CardDescription>
                         </div>
-                        <Button onClick={() => setShowAIModal(true)} variant="default" className="gap-2" disabled={!bhsaLoaded}>
-                            <Sparkles className="w-4 h-4" />
-                            AI Analyze
-                        </Button>
+                        <div className="flex gap-2">
+                            {isAdmin && (
+                                <Button
+                                    onClick={() => {
+                                        if (passageData?.clauses) {
+                                            const allIds = new Set(passageData.clauses.map((c: any) => c.clause_id?.toString() || c.id?.toString()))
+                                            setCheckedClauses(allIds)
+                                        }
+                                    }}
+                                    variant="outline"
+                                    className="gap-2"
+                                    disabled={!passageData?.clauses?.length}
+                                >
+                                    <Check className="w-4 h-4" />
+                                    Validate All
+                                </Button>
+                            )}
+                            <Button
+                                onClick={() => setShowAIModal(true)}
+                                variant="default"
+                                className="gap-2"
+                                disabled={!bhsaLoaded || !allClausesChecked}
+                                title={!allClausesChecked ? "Please read and check all clauses first" : "Run AI Analysis"}
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                AI Analyze
+                            </Button>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-3">
@@ -430,6 +547,16 @@ function Stage1Syntax() {
                                     className={`clause-card ${clause.is_mainline ? 'clause-card-mainline' : 'clause-card-background'}`}
                                 >
                                     <div className="flex items-start justify-between gap-4">
+                                        {/* Checkbox for Read Check */}
+                                        <div className="pt-1">
+                                            <input
+                                                type="checkbox"
+                                                className="w-5 h-5 rounded border-verde/30 text-telha focus:ring-telha cursor-pointer"
+                                                checked={checkedClauses.has(clause.clause_id?.toString() || clause.id?.toString())}
+                                                onChange={() => toggleClauseCheck(clause.clause_id?.toString() || clause.id?.toString())}
+                                            />
+                                        </div>
+
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-2">
                                                 <span className="text-xs font-medium text-verde/50">
@@ -440,6 +567,18 @@ function Stage1Syntax() {
                                                 </Badge>
                                             </div>
                                             <p className="text-preto text-sm mb-2">{clause.gloss}</p>
+                                            {/* Free Translation */}
+                                            {clause.freeTranslation && (
+                                                <p className="text-telha text-sm mb-2 italic border-l-2 border-telha/20 pl-2">
+                                                    "{clause.freeTranslation}"
+                                                </p>
+                                            )}
+                                            {!clause.freeTranslation && translating && (
+                                                <div className="flex items-center gap-2 text-xs text-verde/50 mb-2 italic">
+                                                    <Sparkles className="w-3 h-3 animate-pulse" />
+                                                    Translating...
+                                                </div>
+                                            )}
                                             <p className="text-verde text-xs">
                                                 <strong>Verb:</strong> {clause.lemma_ascii || clause.lemma} ({clause.binyan || 'qal'}) - {clause.tense || 'perf'}
                                             </p>
