@@ -171,6 +171,30 @@ export const bhsaAPI = {
         return response.data
     },
 
+    aiPhase1: async (formattedRef: string, apiKey: string) => {
+        const response = await apiClient.post('/api/ai/analyze/phase1', {
+            passage_ref: formattedRef,
+            api_key: apiKey
+        })
+        return response.data
+    },
+
+    aiPhase2: async (formattedRef: string, apiKey: string) => {
+        const response = await apiClient.post('/api/ai/analyze/phase2', {
+            passage_ref: formattedRef,
+            api_key: apiKey
+        })
+        return response.data
+    },
+
+    translateClauses: async (reference: string, apiKey: string) => {
+        const response = await apiClient.post('/api/ai/translate_clauses', {
+            reference: reference, // Matches AIAnalysisRequest schema
+            api_key: apiKey // Not used in request model but potentially good for consistency
+        })
+        return response.data
+    },
+
     // BHSA
     getStatus: async () => {
         const response = await apiClient.get('/api/bhsa/status')
@@ -220,6 +244,14 @@ export const passagesAPI = {
 // PERICOPES API
 // ============================================================
 
+export interface LockInfo {
+    pericopeRef: string
+    userId: string
+    userName: string
+    startedAt: string
+    lastActivity: string
+}
+
 export interface Pericope {
     id: string
     reference: string
@@ -228,6 +260,23 @@ export interface Pericope {
     verseStart: number
     chapterEnd: number | null
     verseEnd: number | null
+    lock: LockInfo | null
+}
+
+export interface PericopeLockInfo {
+    pericopeRef: string
+    startedAt: string
+    lastActivity: string
+}
+
+export interface UserProgress {
+    id: string
+    username: string
+    email: string
+    role: string
+    completedPassages: number
+    inProgressPassages: number
+    currentLocks: PericopeLockInfo[]
 }
 
 export const pericopesAPI = {
@@ -238,6 +287,54 @@ export const pericopesAPI = {
 
     getBooks: async (): Promise<string[]> => {
         const response = await apiClient.get('/api/pericopes/books')
+        return response.data
+    },
+
+    // Lock management
+    lock: async (reference: string) => {
+        const response = await apiClient.post(`/api/pericopes/lock/${encodeURIComponent(reference)}`)
+        return response.data
+    },
+
+    unlock: async (reference: string) => {
+        const response = await apiClient.delete(`/api/pericopes/lock/${encodeURIComponent(reference)}`)
+        return response.data
+    },
+
+    heartbeat: async (reference: string) => {
+        const response = await apiClient.put(`/api/pericopes/lock/${encodeURIComponent(reference)}/heartbeat`)
+        return response.data
+    },
+
+    getLocks: async (): Promise<LockInfo[]> => {
+        const response = await apiClient.get('/api/pericopes/locks')
+        return response.data
+    },
+
+    // Admin-only bulk operations
+    resetAllLocks: async () => {
+        const response = await apiClient.delete('/api/pericopes/locks/all')
+        return response.data
+    },
+
+    deleteAllPassages: async () => {
+        const response = await apiClient.delete('/api/pericopes/passages/all')
+        return response.data
+    },
+
+    resetEverything: async () => {
+        const response = await apiClient.delete('/api/pericopes/reset/all')
+        return response.data
+    },
+}
+
+// ============================================================
+// USER PROGRESS API (Admin only)
+// ============================================================
+
+export const userProgressAPI = {
+    getProgress: async (): Promise<{ users: UserProgress[] }> => {
+        const response = await apiClient.get('/api/users/progress')
         return response.data
     },
 }
@@ -270,6 +367,12 @@ export const mapsAPI = {
 // METRICS API
 // ============================================================
 
+export interface MetricsFilter {
+    time_range?: 'today' | 'week' | 'month' | 'all'
+    start_date?: string  // YYYY-MM-DD
+    end_date?: string    // YYYY-MM-DD
+}
+
 export const metricsAPI = {
     createSnapshot: async (passageId: string, snapshotData: any) => {
         const response = await apiClient.post('/api/metrics/snapshot', {
@@ -294,8 +397,18 @@ export const metricsAPI = {
         return response.data
     },
 
-    getAggregateMetrics: async () => {
-        const response = await apiClient.get('/api/metrics/aggregate')
+    getAggregateMetrics: async (filter?: MetricsFilter) => {
+        const params: Record<string, string> = {}
+        if (filter?.time_range && filter.time_range !== 'all') {
+            params.time_range = filter.time_range
+        }
+        if (filter?.start_date) {
+            params.start_date = filter.start_date
+        }
+        if (filter?.end_date) {
+            params.end_date = filter.end_date
+        }
+        const response = await apiClient.get('/api/metrics/aggregate', { params })
         return response.data
     }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI, passagesAPI, pericopesAPI, Pericope } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
@@ -7,13 +7,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
-import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter, Check } from 'lucide-react'
+import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter, Check, Lock, User } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface ExistingPassage {
     id: string
     reference: string
     isComplete: boolean
     createdAt: string
+}
+
+/**
+ * Check if a pericope reference contains partial verse indicators (a, b, c, etc.)
+ * These are not supported by BHSA data.
+ * Examples: "Ruth 1:19b-2:2", "Ruth 1:8-19a", "Genesis 1:1a"
+ */
+const hasPartialVerseIndicator = (reference: string): boolean => {
+    // Pattern to detect verse numbers followed by a, b, c, etc.
+    // Matches: :19a, :19b, :1a, :22c, etc. (also at end of string)
+    const partialVersePattern = /:\d+[a-z]/i
+    return partialVersePattern.test(reference)
 }
 
 function Stage1Syntax() {
@@ -25,8 +38,71 @@ function Stage1Syntax() {
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
     const [translating, setTranslating] = useState(false)
     const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
-    const { isAdmin } = useAuth()
+    const { isAdmin, user } = useAuth()
+    
+    // Lock state
+    const [currentLock, setCurrentLock] = useState<string | null>(null) // Reference of currently held lock
+    const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+    // Lock management functions
+    const acquireLock = useCallback(async (ref: string): Promise<boolean> => {
+        try {
+            await pericopesAPI.lock(ref)
+            setCurrentLock(ref)
+            
+            // Start heartbeat to keep lock alive (every 30 seconds)
+            if (heartbeatRef.current) {
+                clearInterval(heartbeatRef.current)
+            }
+            heartbeatRef.current = setInterval(async () => {
+                try {
+                    await pericopesAPI.heartbeat(ref)
+                } catch (err) {
+                    console.error('Heartbeat failed:', err)
+                }
+            }, 30000)
+            
+            return true
+        } catch (err: any) {
+            if (err.response?.status === 409) {
+                const detail = err.response?.data?.detail
+                toast.error('Pericope Locked', {
+                    description: detail?.message || 'This pericope is being analyzed by another user'
+                })
+            } else {
+                console.error('Failed to acquire lock:', err)
+            }
+            return false
+        }
+    }, [])
+
+    const releaseLock = useCallback(async (ref?: string) => {
+        const refToRelease = ref || currentLock
+        if (!refToRelease) return
+        
+        try {
+            await pericopesAPI.unlock(refToRelease)
+        } catch (err) {
+            console.error('Failed to release lock:', err)
+        } finally {
+            if (heartbeatRef.current) {
+                clearInterval(heartbeatRef.current)
+                heartbeatRef.current = null
+            }
+            setCurrentLock(null)
+        }
+    }, [currentLock])
+
+    // Clean up lock on unmount or when passage changes
+    useEffect(() => {
+        return () => {
+            if (heartbeatRef.current) {
+                clearInterval(heartbeatRef.current)
+            }
+            // Note: Can't reliably call async unlock on unmount
+            // Lock will be cleaned up by TTL or when user starts new analysis
+        }
+    }, [])
 
     // Pericopes state
     const [pericopes, setPericopes] = useState<Pericope[]>([])
@@ -44,7 +120,72 @@ function Stage1Syntax() {
         fetchExistingPassages()
         fetchBooks()
         fetchPericopes()
+        checkAndRestoreUserLock()
     }, [])
+
+    // Check if user has an existing lock and restore the session
+    const checkAndRestoreUserLock = async () => {
+        try {
+            const locks = await pericopesAPI.getLocks()
+            const myLock = locks.find(lock => lock.userId === user?.id)
+            
+            if (myLock) {
+                // User has an active lock - restore the session
+                setCurrentLock(myLock.pericopeRef)
+                setReference(myLock.pericopeRef)
+                setSearchTerm(myLock.pericopeRef)
+                
+                // Find the pericope in the list and select it
+                const pericopes = await pericopesAPI.list({ search: myLock.pericopeRef, limit: 10 })
+                const matchingPericope = pericopes.find(p => p.reference === myLock.pericopeRef)
+                if (matchingPericope) {
+                    setSelectedPericope(matchingPericope)
+                }
+                
+                // Start heartbeat for the existing lock
+                if (heartbeatRef.current) {
+                    clearInterval(heartbeatRef.current)
+                }
+                heartbeatRef.current = setInterval(async () => {
+                    try {
+                        await pericopesAPI.heartbeat(myLock.pericopeRef)
+                    } catch (err) {
+                        console.error('Heartbeat failed:', err)
+                    }
+                }, 30000)
+                
+                // Auto-fetch the passage data if not already loaded
+                if (!passageData || passageData.reference !== myLock.pericopeRef) {
+                    toast.info('Restoring your session', {
+                        description: `You were working on ${myLock.pericopeRef}`
+                    })
+                    
+                    // Fetch the passage
+                    try {
+                        setLoading(true)
+                        setLoadingMessage('Restoring your previous session...')
+                        const data = await bhsaAPI.fetchPassage(myLock.pericopeRef)
+                        
+                        if (data.id || data.passage_id) {
+                            setPassageData({
+                                id: data.id || data.passage_id,
+                                reference: data.reference,
+                                source_lang: data.source_lang || 'Hebrew',
+                                clauses: data.clauses
+                            })
+                        }
+                    } catch (err) {
+                        console.error('Failed to restore session:', err)
+                    } finally {
+                        setLoading(false)
+                        setLoadingMessage('')
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to check user locks:', err)
+        }
+    }
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -84,6 +225,22 @@ function Stage1Syntax() {
     }
 
     const handleSelectPericope = (pericope: Pericope) => {
+        // Check if has partial verse indicators (not supported by BHSA)
+        if (hasPartialVerseIndicator(pericope.reference)) {
+            toast.error('Partial Verses Not Supported', {
+                description: 'BHSA data does not support partial verse references (like 19a, 19b). Please choose a pericope with complete verses.'
+            })
+            return
+        }
+        
+        // Check if locked by another user
+        if (pericope.lock && pericope.lock.userId !== user?.id) {
+            toast.error('Pericope Locked', {
+                description: `This pericope is being analyzed by ${pericope.lock.userName}`
+            })
+            return
+        }
+        
         setSelectedPericope(pericope)
         setReference(pericope.reference)
         setSearchTerm(pericope.reference)
@@ -180,6 +337,17 @@ function Stage1Syntax() {
         if (!reference.trim()) return
 
         try {
+            // Release any existing lock first
+            if (currentLock && currentLock !== reference) {
+                await releaseLock(currentLock)
+            }
+            
+            // Try to acquire lock for this pericope
+            const lockAcquired = await acquireLock(reference)
+            if (!lockAcquired) {
+                return // Lock failed, user was notified
+            }
+            
             clearPassage() // Clear any existing data
             setLoading(true)
             setLoadingMessage('Fetching passage from BHSA...')
@@ -401,17 +569,55 @@ function Stage1Syntax() {
                             {/* Dropdown */}
                             {showDropdown && pericopes.length > 0 && (
                                 <div className="absolute z-50 w-full mt-1 bg-white border border-areia-escuro/20 rounded-lg shadow-lg max-h-64 overflow-y-auto">
-                                    {pericopes.map((pericope) => (
-                                        <button
-                                            key={pericope.id}
-                                            onClick={() => handleSelectPericope(pericope)}
-                                            className={`w-full text-left px-4 py-2.5 hover:bg-areia/30 transition-colors flex items-center justify-between gap-2 ${selectedPericope?.id === pericope.id ? 'bg-telha/10 text-telha' : 'text-preto'
-                                                }`}
-                                        >
-                                            <span className="font-medium">{pericope.reference}</span>
-                                            <span className="text-xs text-verde/50">{pericope.book}</span>
-                                        </button>
-                                    ))}
+                                    {pericopes.map((pericope) => {
+                                        const isLockedByOther = !!(pericope.lock && pericope.lock.userId !== user?.id)
+                                        const isLockedByMe = !!(pericope.lock && pericope.lock.userId === user?.id)
+                                        const hasPartialVerse = hasPartialVerseIndicator(pericope.reference)
+                                        const isDisabled = isLockedByOther || hasPartialVerse
+                                        
+                                        return (
+                                            <button
+                                                key={pericope.id}
+                                                onClick={() => handleSelectPericope(pericope)}
+                                                disabled={isDisabled}
+                                                className={`w-full text-left px-4 py-2.5 transition-colors flex items-center justify-between gap-2 
+                                                    ${isDisabled 
+                                                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                                                        : selectedPericope?.id === pericope.id 
+                                                            ? 'bg-telha/10 text-telha' 
+                                                            : 'text-preto hover:bg-areia/30'
+                                                    }
+                                                    ${isLockedByMe ? 'bg-verde-claro/10 border-l-2 border-verde-claro' : ''}
+                                                    ${hasPartialVerse ? 'border-l-2 border-red-300' : ''}
+                                                `}
+                                            >
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`font-medium ${hasPartialVerse ? 'line-through opacity-60' : ''}`}>
+                                                        {pericope.reference}
+                                                    </span>
+                                                    {hasPartialVerse && (
+                                                        <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                                            <AlertTriangle className="w-3 h-3" />
+                                                            Partial verse
+                                                        </span>
+                                                    )}
+                                                    {isLockedByOther && (
+                                                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                                                            <Lock className="w-3 h-3" />
+                                                            {pericope.lock?.userName}
+                                                        </span>
+                                                    )}
+                                                    {isLockedByMe && (
+                                                        <span className="flex items-center gap-1 text-xs text-verde-claro bg-verde-claro/10 px-2 py-0.5 rounded-full">
+                                                            <User className="w-3 h-3" />
+                                                            You
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="text-xs text-verde/50">{pericope.book}</span>
+                                            </button>
+                                        )
+                                    })}
                                 </div>
                             )}
 

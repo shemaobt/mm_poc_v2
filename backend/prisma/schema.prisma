@@ -27,6 +27,7 @@ model User {
   updatedAt     DateTime @updatedAt
   
   passages      Passage[]
+  pericopeLocks PericopeLock[]
   
   @@map("users")
 }
@@ -70,6 +71,7 @@ model Clause {
   verse         Int
   text          String // Hebrew text
   gloss         String   @db.Text // English gloss
+  freeTranslation String?  @db.Text // Natural English translation (AI)
   clauseType    String // e.g., "Way0", "WayX", "xQtl"
   isMainline    Boolean  @default(false)
   chainPosition String? // initial, continuation, break
@@ -440,4 +442,22 @@ model BhsaVerse {
 
   @@unique([book, chapter, verse])
   @@map("bhsa_verses")
+}
+
+// ============================================================
+// PERICOPE LOCKS (Prevent concurrent editing)
+// ============================================================
+
+model PericopeLock {
+  id           String   @id @default(uuid())
+  pericopeRef  String   @unique // e.g., "Ruth 1:1-6"
+  userId       String
+  userName     String   // Denormalized for quick display
+  startedAt    DateTime @default(now())
+  lastActivity DateTime @default(now())
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@map("pericope_locks")
 }
