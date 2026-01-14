@@ -135,3 +135,87 @@ async def delete_user(user_id: str, admin: dict = Depends(get_admin_user)):
     await db.user.delete(where={"id": user_id})
     
     return {"message": "User deleted", "user_id": user_id}
+
+
+# ============================================================
+# USER PROGRESS (Admin Dashboard)
+# ============================================================
+
+class PericopeLockInfo(BaseModel):
+    pericopeRef: str
+    startedAt: str
+    lastActivity: str
+
+
+class UserProgressItem(BaseModel):
+    id: str
+    username: str
+    email: str
+    role: str
+    completedPassages: int
+    inProgressPassages: int
+    currentLocks: List[PericopeLockInfo]
+
+
+class UserProgressResponse(BaseModel):
+    users: List[UserProgressItem]
+
+
+@router.get("/progress", response_model=UserProgressResponse)
+async def get_user_progress(admin: dict = Depends(get_admin_user)):
+    """
+    Get progress information for all users (admin only).
+    Shows completed passages, in-progress work, and current locks.
+    """
+    db = get_db()
+    
+    # Get all approved users
+    users = await db.user.find_many(
+        where={"isApproved": True},
+        order={"username": "asc"}
+    )
+    
+    result = []
+    for user in users:
+        # Count completed passages for this user
+        completed_count = await db.passage.count(
+            where={
+                "userId": user.id,
+                "isComplete": True
+            }
+        )
+        
+        # Count in-progress passages for this user
+        in_progress_count = await db.passage.count(
+            where={
+                "userId": user.id,
+                "isComplete": False
+            }
+        )
+        
+        # Get current locks for this user
+        locks = await db.pericopelock.find_many(
+            where={"userId": user.id},
+            order={"startedAt": "desc"}
+        )
+        
+        lock_info = [
+            PericopeLockInfo(
+                pericopeRef=lock.pericopeRef,
+                startedAt=lock.startedAt.isoformat(),
+                lastActivity=lock.lastActivity.isoformat(),
+            )
+            for lock in locks
+        ]
+        
+        result.append(UserProgressItem(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            role=user.role,
+            completedPassages=completed_count,
+            inProgressPassages=in_progress_count,
+            currentLocks=lock_info,
+        ))
+    
+    return UserProgressResponse(users=result)

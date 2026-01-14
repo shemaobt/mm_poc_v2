@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from './components/layout/Header'
 import Sidebar from './components/layout/Sidebar'
 import ProgressBar from './components/layout/ProgressBar'
@@ -71,11 +71,55 @@ function AuthenticatedApp() {
 }
 
 function MainApp() {
-    const [currentStage, setCurrentStage] = useState(1)
+    const [currentStage, setCurrentStage] = useState(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search)
+            const stageParam = params.get('stage')
+            if (stageParam) {
+                const stage = parseInt(stageParam, 10)
+                if (!isNaN(stage) && stage >= 1 && stage <= 5) {
+                    return stage
+                }
+            }
+        }
+        return 1
+    })
+
+    // Handle browser back/forward
+    useEffect(() => {
+        const handlePopState = () => {
+            if (typeof window !== 'undefined') {
+                const params = new URLSearchParams(window.location.search)
+                const stageParam = params.get('stage')
+                if (stageParam) {
+                    const stage = parseInt(stageParam, 10)
+                    if (!isNaN(stage) && stage >= 1 && stage <= 5) {
+                        setCurrentStage(stage)
+                    }
+                } else {
+                    setCurrentStage(1)
+                }
+            }
+        }
+
+        window.addEventListener('popstate', handlePopState)
+        return () => window.removeEventListener('popstate', handlePopState)
+    }, [])
+
+    // Sync stage to URL
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('stage') !== currentStage.toString()) {
+            params.set('stage', currentStage.toString())
+            const newUrl = `${window.location.pathname}?${params.toString()}`
+            // Use pushState to create history entries for navigation
+            window.history.pushState({ ...window.history.state, stage: currentStage }, '', newUrl)
+        }
+    }, [currentStage])
     const [currentView, setCurrentView] = useState<ViewType>('analysis')
     const [isCollapsed, setIsCollapsed] = useState(true)
     const { isAdmin } = useAuth()
-    
+
     // Get validation state from store
     const { participants, relations, events, validated, passageData } = usePassageStore()
 
@@ -111,7 +155,7 @@ function MainApp() {
                 return true
         }
     }
-    
+
     const getValidationMessage = (stage: number): string => {
         switch (stage) {
             case 1:
@@ -145,7 +189,7 @@ function MainApp() {
             setCurrentStage(currentStage + 1)
         }
     }
-    
+
     const canProceed = isStageValidated(currentStage)
 
     // Redirect non-admins away from dashboard
