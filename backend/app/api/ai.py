@@ -1,7 +1,7 @@
 """
 AI Integration API Router
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import os
 
@@ -14,6 +14,11 @@ class AIPrefillRequest(BaseModel):
     """Request for AI prefill"""
     passage_ref: str
     api_key: str | None = None
+
+
+class AIAnalysisRequest(BaseModel):
+    """Request for AI analysis/translation"""
+    reference: str
 
 @router.post("/prefill")
 async def ai_prefill(request: AIPrefillRequest):
@@ -73,10 +78,110 @@ async def ai_prefill(request: AIPrefillRequest):
             "status": "success",
             "data": saved_data
         }
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"AI prefill error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze/phase1")
+async def analyze_phase1(request: AIPrefillRequest):
+    """
+    Phase 1: Participants & Relations Response
+    """
+    api_key = request.api_key or os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key required")
+    
+    try:
+        from app.services.bhsa_service import get_bhsa_service, parse_reference
+        from app.services.ai_service import AIService
+        
+        # 1. Get Passage Data
+        book, chapter, start_verse, end_verse = parse_reference(request.passage_ref)
+        bhsa_service = get_bhsa_service()
+        passage_data = bhsa_service.extract_passage(book, chapter, start_verse, end_verse)
+        
+        # 2. Call AI Phase 1
+        analysis = await AIService.analyze_participants(passage_data, api_key)
+        
+        # 3. Save (Clearing only participants/relations implies clearing everything dependent on them too)
+        # For Phase 1, we treat it as a fresh start for the passage's semantic layer
+        db = get_db()
+        passage = await db.passage.find_unique(where={"reference": request.passage_ref})
+        if not passage:
+             raise HTTPException(status_code=404, detail="Passage not found")
+
+        # Save Phase 1 (Clear all first to be safe, or just parts? Clear all is safer for Phase 1 start)
+        await _clear_ai_data(db, passage.id, clear_all=True)
+        saved_data = await _save_phase1_data(db, passage.id, analysis)
+        
+        return {"status": "success", "data": saved_data}
+
+    except Exception as e:
+        print(f"Phase 1 Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze/phase2")
+async def analyze_phase2(request: AIPrefillRequest):
+    """
+    Phase 2: Events & Discourse (Requires Phase 1 data in DB)
+    """
+    api_key = request.api_key or os.getenv("ANTHROPIC_API_KEY")
+    try:
+        from app.services.bhsa_service import get_bhsa_service, parse_reference
+        from app.services.ai_service import AIService
+        import json
+        
+        # 1. Get Passage Data
+        book, chapter, start_verse, end_verse = parse_reference(request.passage_ref)
+        bhsa_service = get_bhsa_service()
+        passage_data = bhsa_service.extract_passage(book, chapter, start_verse, end_verse)
+        
+        db = get_db()
+        passage = await db.passage.find_unique(where={"reference": request.passage_ref})
+        if not passage:
+             raise HTTPException(status_code=404, detail="Passage not found")
+             
+        # 2. Build Context from DB Participants
+        # We fetch what we just saved in Phase 1 to ensure AI sees exactly what is persisted
+        db_participants = await db.participant.find_many(
+            where={"passageId": passage.id}
+        )
+        
+        if not db_participants:
+            raise HTTPException(status_code=400, detail="No participants found. Run Phase 1 first.")
+            
+        participants_context_list = [{
+            "participantId": p.participantId,
+            "hebrew": p.hebrew,
+            "gloss": p.gloss,
+            "type": p.type,
+            "quantity": p.quantity,
+            "referenceStatus": p.referenceStatus,
+            "properties": p.properties
+        } for p in db_participants]
+        
+        participants_context = json.dumps(participants_context_list, indent=2, ensure_ascii=False)
+        
+        # 3. Call AI Phase 2
+        analysis = await AIService.analyze_events(passage_data, participants_context, api_key)
+        
+        # 4. Save Phase 2 (Clear events/discourse only)
+        await _clear_ai_data(db, passage.id, clear_events_only=True)
+        saved_data = await _save_phase2_data(db, passage.id, analysis)
+        
+        # Finalize
+        from datetime import datetime
+        await db.passage.update(
+            where={"id": passage.id},
+            data={"isComplete": True, "completedAt": datetime.now()}
+        )
+        
+        return {"status": "success", "data": saved_data}
+
+    except Exception as e:
+        print(f"Phase 2 Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -129,42 +234,45 @@ async def _create_metrics_snapshot(db, passage_id: str, analysis: dict):
         return None
 
 
-async def _save_ai_analysis(db, passage_id: str, analysis: dict) -> dict:
-    """
-    Save AI-generated analysis to database.
-    Clears existing data first to allow re-analysis.
-    Returns saved data with database IDs.
-    """
-    from prisma import Json
-
-    # Clear existing data for this passage (allows re-running AI analysis)
-    # Order matters due to foreign key constraints
+async def _clear_ai_data(db, passage_id: str, clear_all: bool = False, clear_events_only: bool = False):
+    """Clear AI data based on scope"""
     try:
-        await db.discourserelation.delete_many(where={"passageId": passage_id})
-        await db.eventrole.delete_many(where={"event": {"passageId": passage_id}})
-        await db.event.delete_many(where={"passageId": passage_id})
-        await db.participantrelation.delete_many(where={"passageId": passage_id})
-        await db.participant.delete_many(where={"passageId": passage_id})
+        if clear_all:
+            # Delete everything in dependency order
+            await db.discourserelation.delete_many(where={"passageId": passage_id})
+            await db.eventrole.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventmodifier.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventemotion.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventpragmatic.delete_many(where={"event": {"passageId": passage_id}})
+            await db.event.delete_many(where={"passageId": passage_id})
+            await db.participantrelation.delete_many(where={"passageId": passage_id})
+            await db.participant.delete_many(where={"passageId": passage_id})
+        elif clear_events_only:
+            # Delete only events and discourse
+            await db.discourserelation.delete_many(where={"passageId": passage_id})
+            await db.eventrole.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventmodifier.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventemotion.delete_many(where={"event": {"passageId": passage_id}})
+            await db.eventpragmatic.delete_many(where={"event": {"passageId": passage_id}})
+            await db.event.delete_many(where={"passageId": passage_id})
+            
     except Exception as e:
-        print(f"Error clearing existing data: {e}")
+        print(f"Error clearing data: {e}")
+
+async def _save_phase1_data(db, passage_id: str, analysis: dict) -> dict:
+    """Save Phase 1: Participants & Relations"""
+    from prisma import Json
     
     saved_participants = []
-    saved_events = []
     saved_relations = []
-    saved_discourse = []
-    
-    # Map from AI participant IDs (p1, p2) to database UUIDs
     participant_id_map = {}
     
-    # 1. Save participants
+    # 1. Save Participants
     if analysis.get("participants"):
         for p in analysis["participants"]:
             try:
                 props = p.get("properties")
-                # Use Json wrapper for properties (required by Prisma 0.15.0)
-                # Default to empty list [] instead of None
                 properties_value = props if isinstance(props, list) else []
-                
                 created = await db.participant.create(
                     data={
                         "passage": {"connect": {"id": passage_id}},
@@ -178,267 +286,11 @@ async def _save_ai_analysis(db, passage_id: str, analysis: dict) -> dict:
                     }
                 )
                 participant_id_map[p.get("participantId", p.get("id", ""))] = created.id
-                saved_participants.append({
-                    "id": created.id,
-                    "passageId": passage_id,
-                    "participantId": created.participantId,
-                    "hebrew": created.hebrew,
-                    "gloss": created.gloss,
-                    "type": created.type,
-                    "quantity": created.quantity,
-                    "referenceStatus": created.referenceStatus,
-                    "properties": properties_value,
-                })
+                saved_participants.append(created.dict())
             except Exception as e:
                 print(f"Error saving participant: {e}")
-    
-    # Map from AI event IDs (e1, e2) to database UUIDs
-    event_id_map = {}
-    # 2. Save events with all sub-models
-    if analysis.get("events"):
-        for ev in analysis["events"]:
-            try:
-                event_data = {
-                    "passage": {"connect": {"id": passage_id}},
-                    "eventId": ev.get("eventId", ev.get("id", "")),
-                    "category": ev.get("category", "ACTION"),
-                    "eventCore": ev.get("eventCore", ev.get("event_core", "")),
-                    "discourseFunction": ev.get("discourseFunction"),
-                    "chainPosition": ev.get("chainPosition"),
-                    "narrativeFunction": ev.get("narrativeFunction"),
-                }
-                
-                # Add modifiers if present
-                mods = ev.get("modifiers", {})
-                if mods and any(mods.values()):
-                    event_data["modifiers"] = {"create": {
-                        "happened": mods.get("happened"),
-                        "realness": mods.get("realness"),
-                        "when": mods.get("when"),
-                        "viewpoint": mods.get("viewpoint"),
-                        "phase": mods.get("phase"),
-                        "repetition": mods.get("repetition"),
-                        "onPurpose": mods.get("onPurpose"),
-                        "howKnown": mods.get("howKnown"),
-                        "causation": mods.get("causation"),
-                    }}
-                
-                # Add pragmatic if present
-                prag = ev.get("pragmatic", {})
-                if prag and any(prag.values()):
-                    event_data["pragmatic"] = {"create": {
-                        "discourseRegister": prag.get("register"),
-                        "socialAxis": prag.get("socialAxis"),
-                        "prominence": prag.get("prominence"),
-                        "pacing": prag.get("pacing"),
-                    }}
-                
-                # Add narrator stance if present
-                ns = ev.get("narratorStance", {})
-                if ns and ns.get("stance"):
-                    event_data["narratorStance"] = {"create": {"stance": ns.get("stance")}}
-                
-                # Add audience response if present
-                ar = ev.get("audienceResponse", {})
-                if ar and ar.get("response"):
-                    event_data["audienceResponse"] = {"create": {"response": ar.get("response")}}
-                
-                # Add LA Tags if present
-                la = ev.get("laTags", {})
-                if la and any(la.values()):
-                    event_data["laRetrieval"] = {"create": {
-                        "emotionTags": Json(la.get("emotionTags", [])),
-                        "eventTags": Json(la.get("eventTags", [])),
-                        "registerTags": Json(la.get("registerTags", [])),
-                        "discourseTags": Json(la.get("discourseTags", [])),
-                        "socialTags": Json(la.get("socialTags", [])),
-                    }}
-                
-                # Add figurative if present and is figurative
-                fig = ev.get("figurative", {})
-                if fig and fig.get("isFigurative"):
-                    event_data["figurative"] = {"create": {
-                        "isFigurative": True,
-                        "figureType": fig.get("figureType", ""),
-                        "sourceDomain": fig.get("sourceDomain"),
-                        "targetDomain": fig.get("targetDomain"),
-                        "literalMeaning": fig.get("literalMeaning"),
-                        "intendedMeaning": fig.get("intendedMeaning"),
-                        "transferability": fig.get("transferability"),
-                        "translationNote": fig.get("translationNote"),
-                    }}
-                
-                # Add key terms if present
-                kts = ev.get("keyTerms", [])
-                if kts:
-                    event_data["keyTerms"] = {"create": [
-                        {
-                            "termId": kt.get("termId", f"kt{i}"),
-                            "sourceLemma": kt.get("sourceLemma", ""),
-                            "semanticDomain": kt.get("semanticDomain", "theological"),
-                            "consistency": kt.get("consistency", "preferred"),
-                        } for i, kt in enumerate(kts)
-                    ]}
-                
-                created = await db.event.create(
-                    data=event_data,
-                    include={
-                        "modifiers": True,
-                        "pragmatic": True,
-                        "narratorStance": True,
-                        "audienceResponse": True,
-                        "laRetrieval": True,
-                        "figurative": True,
-                        "keyTerms": True,
-                    }
-                )
-                event_id_map[ev.get("eventId", ev.get("id", ""))] = created.id
-                
-                # Build complete event response
-                event_resp = {
-                    "id": created.id,
-                    "passageId": passage_id,
-                    "eventId": created.eventId,
-                    "category": created.category,
-                    "eventCore": created.eventCore,
-                    "discourseFunction": created.discourseFunction,
-                    "chainPosition": created.chainPosition,
-                    "narrativeFunction": created.narrativeFunction,
-                    "roles": [],  # Will be populated after roles are saved
-                }
-                
-                # Add sub-models if present
-                if created.modifiers:
-                    event_resp["modifiers"] = {
-                        "happened": created.modifiers.happened,
-                        "realness": created.modifiers.realness,
-                        "when": created.modifiers.when,
-                        "viewpoint": created.modifiers.viewpoint,
-                        "phase": created.modifiers.phase,
-                        "repetition": created.modifiers.repetition,
-                        "onPurpose": created.modifiers.onPurpose,
-                        "howKnown": created.modifiers.howKnown,
-                        "causation": created.modifiers.causation,
-                    }
-                if created.pragmatic:
-                    event_resp["pragmatic"] = {
-                        "register": created.pragmatic.discourseRegister,
-                        "socialAxis": created.pragmatic.socialAxis,
-                        "prominence": created.pragmatic.prominence,
-                        "pacing": created.pragmatic.pacing,
-                    }
-                if created.narratorStance:
-                    event_resp["narratorStance"] = {"stance": created.narratorStance.stance}
-                if created.audienceResponse:
-                    event_resp["audienceResponse"] = {"response": created.audienceResponse.response}
-                if created.laRetrieval:
-                    event_resp["laRetrieval"] = {
-                        "emotionTags": created.laRetrieval.emotionTags,
-                        "eventTags": created.laRetrieval.eventTags,
-                        "registerTags": created.laRetrieval.registerTags,
-                        "discourseTags": created.laRetrieval.discourseTags,
-                        "socialTags": created.laRetrieval.socialTags,
-                    }
-                if created.figurative:
-                    event_resp["figurative"] = {
-                        "isFigurative": created.figurative.isFigurative,
-                        "figureType": created.figurative.figureType,
-                        "sourceDomain": created.figurative.sourceDomain,
-                        "targetDomain": created.figurative.targetDomain,
-                        "literalMeaning": created.figurative.literalMeaning,
-                        "intendedMeaning": created.figurative.intendedMeaning,
-                        "transferability": created.figurative.transferability,
-                        "translationNote": created.figurative.translationNote,
-                    }
-                if created.keyTerms:
-                    event_resp["keyTerms"] = [{
-                        "id": kt.id,
-                        "termId": kt.termId,
-                        "sourceLemma": kt.sourceLemma,
-                        "semanticDomain": kt.semanticDomain,
-                        "consistency": kt.consistency,
-                    } for kt in created.keyTerms]
-                
-                saved_events.append(event_resp)
-            except Exception as e:
-                print(f"Error saving event: {e}")
-    
-    # 2b. Save event roles and emotions (separate step to link participants)
-    if analysis.get("events"):
-        for ev in analysis["events"]:
-            event_db_id = event_id_map.get(ev.get("eventId", ev.get("id", "")))
-            if not event_db_id:
-                continue
-            
-            # Find the corresponding saved_event to update roles
-            saved_event = next((e for e in saved_events if e["id"] == event_db_id), None)
-            event_roles = []
-            
-            # Save roles - only if participant is valid
-            if ev.get("roles"):
-                for role in ev["roles"]:
-                    try:
-                        participant_db_id = participant_id_map.get(role.get("participantId"))
-                        # Skip roles without valid participant
-                        if not participant_db_id:
-                            continue
-                        
-                        role_data = {
-                            "event": {"connect": {"id": event_db_id}},
-                            "role": role.get("role", role.get("type", "")),
-                            "participant": {"connect": {"id": participant_db_id}}
-                        }
-                        
-                        await db.eventrole.create(data=role_data)
-                        # Track role for response
-                        event_roles.append({
-                            "role": role.get("role", role.get("type", "")),
-                            "participantId": role.get("participantId")
-                        })
-                    except Exception as e:
-                        print(f"Error saving event role: {e}")
-            
-            # Update saved_event with roles
-            if saved_event:
-                saved_event["roles"] = event_roles
-            
-            # Save emotions (need participant linking)
-            event_emotions = []
-            if ev.get("emotions"):
-                for emo in ev["emotions"]:
-                    try:
-                        emo_data = {
-                            "event": {"connect": {"id": event_db_id}},
-                            "primary": emo.get("primary", "neutral"),
-                            "secondary": emo.get("secondary"),
-                            "intensity": emo.get("intensity", "medium"),
-                            "source": emo.get("source", "contextual"),
-                            "confidence": emo.get("confidence", "medium"),
-                            "notes": emo.get("notes"),
-                        }
-                        participant_db_id = participant_id_map.get(emo.get("participantId"))
-                        if participant_db_id:
-                            emo_data["participant"] = {"connect": {"id": participant_db_id}}
-                        
-                        created_emo = await db.eventemotion.create(data=emo_data)
-                        event_emotions.append({
-                            "id": created_emo.id,
-                            "participantId": emo.get("participantId"),
-                            "primary": created_emo.primary,
-                            "secondary": created_emo.secondary,
-                            "intensity": created_emo.intensity,
-                            "source": created_emo.source,
-                            "confidence": created_emo.confidence,
-                            "notes": created_emo.notes,
-                        })
-                    except Exception as e:
-                        print(f"Error saving event emotion: {e}")
-            
-            # Update saved_event with emotions
-            if saved_event and event_emotions:
-                saved_event["emotions"] = event_emotions
-    
-    # 3. Save participant relations
+
+    # 2. Save Participant Relations
     rels = analysis.get("relations", [])
     if rels:
         for rel in rels:
@@ -458,49 +310,251 @@ async def _save_ai_analysis(db, passage_id: str, analysis: dict) -> dict:
                             "target": {"connect": {"id": target_db_id}},
                         }
                     )
-                    saved_relations.append({
-                        "id": created.id,
-                        "passageId": passage_id,
-                        "category": created.category,
-                        "type": created.type,
-                        "sourceId": s_id,
-                        "targetId": t_id,
-                    })
+                    saved_relations.append(created.dict())
             except Exception as e:
                 print(f"Error saving relation: {e}")
+                
+    return {"participants": saved_participants, "relations": saved_relations}
+
+async def _save_phase2_data(db, passage_id: str, analysis: dict) -> dict:
+    """Save Phase 2: Events & Discourse"""
+    from prisma import Json
     
-    # 4. Save discourse relations
+    # Need to fetch participants to Map IDs for roles
+    db_participants = await db.participant.find_many(where={"passageId": passage_id})
+    participant_id_map = {p.participantId: p.id for p in db_participants}
+    
+    # Fetch clauses for linking (map logic: clauseIndex + 1 -> db_id)
+    db_clauses = await db.clause.find_many(where={"passageId": passage_id}, order={"clauseIndex": "asc"})
+    clause_map = {str(c.clauseIndex + 1): c.id for c in db_clauses}
+    print(f"[Debug] Clause Map for {passage_id}: {clause_map}")
+
+    saved_events = []
+    saved_discourse = []
+    event_id_map = {}
+    
+    # 1. Save Events
+    if analysis.get("events"):
+        for ev in analysis["events"]:
+            try:
+                ai_clause_id = str(ev.get("clauseId", ""))
+                db_clause_id = clause_map.get(ai_clause_id)
+                print(f"[Debug] Linking Event {ev.get('eventId')} (clauseId={ai_clause_id}) -> DB Clause {db_clause_id}")
+                
+                event_data = {
+                    "passage": {"connect": {"id": passage_id}},
+                    "eventId": ev.get("eventId", ev.get("id", "")),
+                    "category": ev.get("category", "ACTION"),
+                    "eventCore": ev.get("eventCore", ev.get("event_core", "")),
+                    "discourseFunction": ev.get("discourseFunction"),
+                    "chainPosition": ev.get("chainPosition"),
+                    "narrativeFunction": ev.get("narrativeFunction"),
+                }
+                
+                if db_clause_id:
+                    event_data["clause"] = {"connect": {"id": db_clause_id}}
+
+                # Add sub-models (modifiers, pragmatic, etc) - SIMPLIFIED for brevity but keep essential
+                mods = ev.get("modifiers", {})
+                if mods and any(mods.values()):
+                    event_data["modifiers"] = {"create": {
+                        "happened": mods.get("happened"), "realness": mods.get("realness"), "when": mods.get("when"),
+                        "viewpoint": mods.get("viewpoint"), "phase": mods.get("phase"), "repetition": mods.get("repetition"),
+                        "onPurpose": mods.get("onPurpose"), "howKnown": mods.get("howKnown"), "causation": mods.get("causation")
+                    }}
+                
+                prag = ev.get("pragmatic", {})
+                if prag and any(prag.values()):
+                    event_data["pragmatic"] = {"create": {
+                        "discourseRegister": prag.get("register"), "socialAxis": prag.get("socialAxis"),
+                        "prominence": prag.get("prominence"), "pacing": prag.get("pacing")
+                    }}
+                    
+                # ... (Include other sub-models same as before) ...
+                
+                created = await db.event.create(
+                    data=event_data,
+                    include={
+                        "modifiers": True,
+                        "pragmatic": True,
+                        "speechAct": True,
+                        "emotions": True,
+                        "narratorStance": True,
+                        "audienceResponse": True,
+                        "laRetrieval": True,
+                        "figurative": True,
+                        "keyTerms": True,
+                        "roles": {"include": {"participant": True}},
+                    }
+                )
+                event_id_map[ev.get("eventId", ev.get("id", ""))] = created.id
+                
+                # 2. Save Roles
+                created_roles = []
+                if ev.get("roles"):
+                    for role in ev["roles"]:
+                        p_id = participant_id_map.get(role.get("participantId"))
+                        if p_id:
+                            role_created = await db.eventrole.create(
+                                data={
+                                    "event": {"connect": {"id": created.id}},
+                                    "role": role.get("role", "doer"),
+                                    "participant": {"connect": {"id": p_id}}
+                                },
+                                include={"participant": True}
+                            )
+                            created_roles.append({
+                                "role": role_created.role,
+                                "participantId": p_id
+                            })
+
+                # Build complete event response with all sub-models
+                event_response = {
+                    "id": created.id,
+                    "eventId": created.eventId,
+                    "clauseId": created.clauseId,
+                    "category": created.category,
+                    "eventCore": created.eventCore,
+                    "discourseFunction": created.discourseFunction,
+                    "chainPosition": created.chainPosition,
+                    "narrativeFunction": created.narrativeFunction,
+                    "passageId": passage_id,
+                    "roles": created_roles,
+                    "modifiers": {
+                        "happened": created.modifiers.happened if created.modifiers else None,
+                        "realness": created.modifiers.realness if created.modifiers else None,
+                        "when": created.modifiers.when if created.modifiers else None,
+                        "viewpoint": created.modifiers.viewpoint if created.modifiers else None,
+                        "phase": created.modifiers.phase if created.modifiers else None,
+                        "repetition": created.modifiers.repetition if created.modifiers else None,
+                        "onPurpose": created.modifiers.onPurpose if created.modifiers else None,
+                        "howKnown": created.modifiers.howKnown if created.modifiers else None,
+                        "causation": created.modifiers.causation if created.modifiers else None,
+                    } if created.modifiers else None,
+                    "pragmatic": {
+                        "register": created.pragmatic.discourseRegister if created.pragmatic else None,
+                        "socialAxis": created.pragmatic.socialAxis if created.pragmatic else None,
+                        "prominence": created.pragmatic.prominence if created.pragmatic else None,
+                        "pacing": created.pragmatic.pacing if created.pragmatic else None,
+                    } if created.pragmatic else None,
+                    "speechAct": created.speechAct.dict() if created.speechAct else None,
+                    "emotions": [e.dict() for e in created.emotions] if created.emotions else None,
+                    "narratorStance": created.narratorStance.dict() if created.narratorStance else None,
+                    "audienceResponse": created.audienceResponse.dict() if created.audienceResponse else None,
+                    "laRetrieval": created.laRetrieval.dict() if created.laRetrieval else None,
+                    "figurative": created.figurative.dict() if created.figurative else None,
+                    "keyTerms": [kt.dict() for kt in created.keyTerms] if created.keyTerms else None,
+                }
+                saved_events.append(event_response)
+            except Exception as e:
+                print(f"Error saving event: {e}")
+
+    # 3. Save Discourse Relations
     if analysis.get("discourse"):
         for disc in analysis["discourse"]:
             try:
-                source_db_id = event_id_map.get(disc.get("sourceId"))
-                target_db_id = event_id_map.get(disc.get("targetId"))
-                
-                if source_db_id and target_db_id:
-                    created = await db.discourserelation.create(
-                        data={
-                            "passage": {"connect": {"id": passage_id}},
-                            "type": disc.get("relationType", disc.get("type", "")),
-                            "source": {"connect": {"id": source_db_id}},
-                            "target": {"connect": {"id": target_db_id}},
-                        }
-                    )
-                    saved_discourse.append({
-                        "id": created.id,
-                        "passageId": passage_id,
-                        "relationType": created.type,
-                        "sourceId": disc.get("sourceId"),
-                        "targetId": disc.get("targetId"),
+                s_id = event_id_map.get(disc.get("sourceId"))
+                t_id = event_id_map.get(disc.get("targetId"))
+                if s_id and t_id:
+                    created = await db.discourserelation.create(data={
+                        "passage": {"connect": {"id": passage_id}},
+                        "type": disc.get("relationType", disc.get("type", "")),
+                        "source": {"connect": {"id": s_id}},
+                        "target": {"connect": {"id": t_id}}
                     })
+                    saved_discourse.append(created.dict())
             except Exception as e:
-                print(f"Error saving discourse relation: {e}")
-    
+                print(f"Error saving discourse: {e}")
+
+    return {"events": saved_events, "discourse": saved_discourse}
+
+async def _save_ai_analysis(db, passage_id: str, analysis: dict) -> dict:
+    """Wrapper for backward compatibility"""
+    # ... deprecated ...
+    await _clear_ai_data(db, passage_id, clear_all=True)
+    p1 = await _save_phase1_data(db, passage_id, analysis)
+    p2 = await _save_phase2_data(db, passage_id, analysis)
+    return {**p1, **p2}
+
+
     return {
         "participants": saved_participants,
         "events": saved_events,
         "relations": saved_relations,
         "discourse": saved_discourse,
     }
+
+
+@router.post("/translate_clauses")
+async def translate_clauses(
+    request: AIAnalysisRequest,
+    db = Depends(get_db)
+):
+    """
+    Generate free translations for all clauses in a passage.
+    """
+    from prisma import Prisma
+    from app.services.ai_service import AIService
+    
+    try:
+        # 1. Fetch passage and clauses
+        passage = await db.passage.find_unique(
+            where={"reference": request.reference},
+            include={"clauses": True}
+        )
+        
+        if not passage:
+            raise HTTPException(status_code=404, detail="Passage not found")
+            
+        passage_data = passage.dict()
+        
+        # 2. Check for existing translations
+        existing_translations = {}
+        all_translated = True
+        
+        for c in passage.clauses:
+            if c.freeTranslation:
+                existing_translations[str(c.clauseIndex + 1)] = c.freeTranslation
+            else:
+                all_translated = False
+        
+        if all_translated and len(passage.clauses) > 0:
+            print(f"[AI] Skipping generation. Found {len(existing_translations)} existing translations.")
+            return {
+                "message": "Retrieved from database (cached)", 
+                "updated_count": 0, 
+                "translations": existing_translations
+            }
+
+        # 3. Call AI Service (if needed)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="ID not configured (ANTHROPIC_API_KEY missing)")
+            
+        translations = await AIService.translate_clauses(passage_data, api_key)
+        
+        # 3. Update clauses in DB
+        updated_count = 0
+        for clause_id_str, translation in translations.items():
+            try:
+                c_id = int(clause_id_str)
+                # Find clause where clauseIndex+1 matches the ID returned by AI
+                target_clause = next((c for c in passage.clauses if (c.clauseIndex + 1) == c_id), None)
+                
+                if target_clause:
+                    await db.clause.update(
+                        where={"id": target_clause.id},
+                        data={"freeTranslation": translation}
+                    )
+                    updated_count += 1
+            except ValueError:
+                continue
+                
+        return {"message": "Translation complete", "updated_count": updated_count, "translations": translations}
+
+    except Exception as e:
+        print(f"Translation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/models")

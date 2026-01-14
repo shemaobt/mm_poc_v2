@@ -223,9 +223,9 @@ function Stage4Events() {
         if (passageData?.id) {
             // Fetch DB clauses to get UUID mappings
             fetchDbClauses(passageData.id)
-            if (events.length === 0) {
-                fetchEvents(passageData.id)
-            }
+            // Always fetch events from DB to ensure we have complete data with all sub-models
+            // The store might have stale data from AI analysis that doesn't include modifiers/pragmatic
+            fetchEvents(passageData.id)
         }
     }, [passageData?.id])
 
