@@ -36,7 +36,15 @@ export const SEMANTIC_ROLES = [
     { value: 'manner', label: 'Manner' },
     { value: 'hearer', label: 'Hearer' },
     { value: 'message', label: 'Message' },
-    { value: 'companion', label: 'Companion' }
+    { value: 'companion', label: 'Companion' },
+    { value: 'attribute', label: 'Attribute (property/state)' },
+    { value: 'theme', label: 'Theme' },
+    { value: 'stimulus', label: 'Stimulus' },
+    { value: 'possessor', label: 'Possessor' },
+    { value: 'possessed', label: 'Possessed' },
+    { value: 'content', label: 'Content (speech/thought)' },
+    { value: 'result', label: 'Result' },
+    { value: 'cause', label: 'Cause' }
 ]
 
 // ============================================================
