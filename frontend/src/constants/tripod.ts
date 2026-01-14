@@ -30,15 +30,22 @@ export const SEMANTIC_ROLES = [
     { value: 'recipient', label: 'Recipient' },
     { value: 'causer', label: 'Causer' },
     { value: 'beneficiary', label: 'Beneficiary' },
+    { value: 'benefactor', label: 'Benefactor' },  // Alias for beneficiary
     { value: 'instrument', label: 'Instrument' },
+    { value: 'tool', label: 'Tool' },  // Alias for instrument
     // Location/direction roles
     { value: 'location', label: 'Location' },
+    { value: 'place', label: 'Place' },  // Alias for location
     { value: 'goal', label: 'Goal/Destination' },
+    { value: 'destination', label: 'Destination' },  // Alias for goal
     { value: 'source', label: 'Source/Origin' },
+    { value: 'origin', label: 'Origin' },  // Alias for source
     { value: 'path', label: 'Path' },
     // Temporal/manner roles
     { value: 'time', label: 'Time' },
+    { value: 'timing', label: 'Timing' },  // Alias for time
     { value: 'manner', label: 'Manner' },
+    { value: 'way', label: 'Way' },  // Alias for manner
     // Speech act roles
     { value: 'hearer', label: 'Hearer' },
     { value: 'speaker', label: 'Speaker' },
@@ -54,6 +61,7 @@ export const SEMANTIC_ROLES = [
     { value: 'content', label: 'Content (speech/thought)' },
     { value: 'result', label: 'Result' },
     { value: 'cause', label: 'Cause' },
+    { value: 'reason', label: 'Reason' },  // Alias for cause
     // Construction/creation roles
     { value: 'builder', label: 'Builder' },
     { value: 'product', label: 'Product (created thing)' },
@@ -186,26 +194,36 @@ export const QUOTATION_TYPES = [
 export const DISCOURSE_FUNCTIONS = [
     { value: 'mainline', label: 'Mainline (foreground)' },
     { value: 'background', label: 'Background' },
+    { value: 'offline', label: 'Offline (aside/comment)' },
     { value: 'setting', label: 'Setting' },
     { value: 'peak', label: 'Peak' },
-    { value: 'closing', label: 'Closing' }
+    { value: 'closing', label: 'Closing' },
+    { value: 'embedded_speech', label: 'Embedded Speech' },
+    { value: 'quotation', label: 'Quotation' }
 ]
 
 export const NARRATIVE_FUNCTIONS = [
     { value: 'setting', label: 'Setting (establishes time/place/characters)' },
     { value: 'inciting_incident', label: 'Inciting Incident (triggers the story)' },
+    { value: 'initiating_action', label: 'Initiating Action' },  // Alias
     { value: 'complication', label: 'Complication (raises tension)' },
+    { value: 'development', label: 'Development (plot advances)' },
     { value: 'peak', label: 'Peak (climax/turning point)' },
+    { value: 'turning_point', label: 'Turning Point' },  // Alias for peak
     { value: 'resolution', label: 'Resolution (outcome)' },
+    { value: 'conclusion', label: 'Conclusion' },  // Alias for resolution
     { value: 'coda', label: 'Coda (final reflection)' },
     { value: 'background', label: 'Background (supporting info)' },
     { value: 'evaluation', label: 'Evaluation (narrator comment)' },
+    { value: 'comment', label: 'Comment' },  // Alias for evaluation
     { value: 'flashback', label: 'Flashback (prior event)' },
     { value: 'foreshadowing', label: 'Foreshadowing (hints at future)' }
 ]
 
 export const CHAIN_POSITIONS = [
     { value: 'initial', label: 'Initial (new chain)' },
+    { value: 'medial', label: 'Medial (middle of chain)' },
+    { value: 'final', label: 'Final (end of chain)' },
     { value: 'continuation', label: 'Continuation' },
     { value: 'resumption', label: 'Resumption' },
     { value: 'break', label: 'Break' }
