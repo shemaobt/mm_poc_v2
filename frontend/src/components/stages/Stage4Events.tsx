@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
-import { bhsaAPI } from '../../services/api'
+import { bhsaAPI, passagesAPI } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import { EventCreate, EventResponse, EventRoleBase, EventModifier, EventEmotion, KeyTerm } from '../../types'
 import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
@@ -38,64 +39,64 @@ import {
 type SectionVariant = 'default' | 'roles' | 'modifiers' | 'pragmatic' | 'emotion' | 'la-tags' | 'figurative' | 'key-terms' | 'speech'
 
 const sectionStyles: Record<SectionVariant, { header: string; content: string; border: string }> = {
-    default: { 
-        header: 'bg-areia/10 hover:bg-areia/20', 
-        content: 'bg-white', 
-        border: 'border-areia/30' 
+    default: {
+        header: 'bg-areia/10 hover:bg-areia/20',
+        content: 'bg-white',
+        border: 'border-areia/30'
     },
-    roles: { 
-        header: 'bg-amber-50 hover:bg-amber-100', 
-        content: 'bg-amber-50/50', 
-        border: 'border-l-4 border-l-amber-400 border-areia/30' 
+    roles: {
+        header: 'bg-amber-50 hover:bg-amber-100',
+        content: 'bg-amber-50/50',
+        border: 'border-l-4 border-l-amber-400 border-areia/30'
     },
-    modifiers: { 
-        header: 'bg-slate-50 hover:bg-slate-100', 
-        content: 'bg-white', 
-        border: 'border-areia/30' 
+    modifiers: {
+        header: 'bg-slate-50 hover:bg-slate-100',
+        content: 'bg-white',
+        border: 'border-areia/30'
     },
-    pragmatic: { 
-        header: 'bg-yellow-50 hover:bg-yellow-100', 
-        content: 'bg-yellow-50/50', 
-        border: 'border-areia/30' 
+    pragmatic: {
+        header: 'bg-yellow-50 hover:bg-yellow-100',
+        content: 'bg-yellow-50/50',
+        border: 'border-areia/30'
     },
-    emotion: { 
-        header: 'bg-pink-50 hover:bg-pink-100', 
-        content: 'bg-pink-50/50', 
-        border: 'border-areia/30' 
+    emotion: {
+        header: 'bg-pink-50 hover:bg-pink-100',
+        content: 'bg-pink-50/50',
+        border: 'border-areia/30'
     },
-    'la-tags': { 
-        header: 'bg-emerald-50 hover:bg-emerald-100', 
-        content: 'bg-emerald-50/50', 
-        border: 'border-areia/30' 
+    'la-tags': {
+        header: 'bg-emerald-50 hover:bg-emerald-100',
+        content: 'bg-emerald-50/50',
+        border: 'border-areia/30'
     },
-    figurative: { 
-        header: 'bg-purple-50 hover:bg-purple-100', 
-        content: 'bg-purple-50/50', 
-        border: 'border-areia/30' 
+    figurative: {
+        header: 'bg-purple-50 hover:bg-purple-100',
+        content: 'bg-purple-50/50',
+        border: 'border-areia/30'
     },
-    'key-terms': { 
-        header: 'bg-orange-50 hover:bg-orange-100', 
-        content: 'bg-orange-50/50', 
-        border: 'border-areia/30' 
+    'key-terms': {
+        header: 'bg-orange-50 hover:bg-orange-100',
+        content: 'bg-orange-50/50',
+        border: 'border-areia/30'
     },
-    speech: { 
-        header: 'bg-blue-50 hover:bg-blue-100', 
-        content: 'bg-blue-50/50', 
-        border: 'border-areia/30' 
+    speech: {
+        header: 'bg-blue-50 hover:bg-blue-100',
+        content: 'bg-blue-50/50',
+        border: 'border-areia/30'
     }
 }
 
 // Collapsible section component with emoji and color support
-function CollapsibleSection({ 
-    title, 
+function CollapsibleSection({
+    title,
     emoji,
-    icon: Icon, 
-    children, 
+    icon: Icon,
+    children,
     defaultOpen = false,
     count,
     variant = 'default',
     helpText
-}: { 
+}: {
     title: string
     emoji?: string
     icon?: React.ComponentType<{ className?: string }>
@@ -107,7 +108,7 @@ function CollapsibleSection({
 }) {
     const [isOpen, setIsOpen] = useState(defaultOpen)
     const styles = sectionStyles[variant]
-    
+
     return (
         <div className={`border rounded-lg overflow-hidden ${styles.border}`}>
             <button
@@ -144,13 +145,13 @@ function CollapsibleSection({
 }
 
 // Helper to render a select field
-function SelectField({ 
-    label, 
-    value, 
-    options, 
+function SelectField({
+    label,
+    value,
+    options,
     onChange,
     placeholder = "Select..."
-}: { 
+}: {
     label: string
     value?: string
     options: { value: string; label: string }[]
@@ -190,14 +191,18 @@ function Stage4Events() {
         toggleValidation,
         validateAll
     } = usePassageStore()
-    
+
+    const { isAdmin } = useAuth()
+
     // Validation helpers
     const isValidated = (id: string) => validated.events.has(id)
-    const validatedCount = validated.events.size
+    const validatedCount = events.filter(e => validated.events.has(e.id)).length
     const allValidated = events.length > 0 && events.every(e => validated.events.has(e.id))
-    
+
     const [showModal, setShowModal] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
+    // DB clauses with UUIDs - needed to match event.clauseId to actual clause data
+    const [dbClauses, setDbClauses] = useState<any[]>([])
     const [formData, setFormData] = useState<EventCreate>({
         eventId: '',
         category: 'ACTION',
@@ -215,10 +220,25 @@ function Stage4Events() {
     })
 
     useEffect(() => {
-        if (passageData?.id && events.length === 0) {
-            fetchEvents(passageData.id)
+        if (passageData?.id) {
+            // Fetch DB clauses to get UUID mappings
+            fetchDbClauses(passageData.id)
+            if (events.length === 0) {
+                fetchEvents(passageData.id)
+            }
         }
     }, [passageData?.id])
+
+    const fetchDbClauses = async (passageId: string) => {
+        try {
+            const passage = await passagesAPI.get(passageId)
+            if (passage?.clauses) {
+                setDbClauses(passage.clauses)
+            }
+        } catch (err: any) {
+            console.error('Failed to fetch DB clauses:', err)
+        }
+    }
 
     const fetchEvents = async (passageId: string) => {
         try {
@@ -369,11 +389,11 @@ function Stage4Events() {
     const addEmotion = () => {
         setFormData({
             ...formData,
-            emotions: [...(formData.emotions || []), { 
-                primary: 'joy', 
-                intensity: 'medium', 
-                source: 'contextual', 
-                confidence: 'medium' 
+            emotions: [...(formData.emotions || []), {
+                primary: 'joy',
+                intensity: 'medium',
+                source: 'contextual',
+                confidence: 'medium'
             }]
         })
     }
@@ -472,23 +492,25 @@ function Stage4Events() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => validateAll('events', events.map(e => e.id))}
-                        disabled={allValidated}
-                    >
-                        <Check className="w-4 h-4 mr-1" />
-                        Validate All
-                    </Button>
+                    {isAdmin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => validateAll('events', events.map(e => e.id))}
+                            disabled={allValidated}
+                        >
+                            <Check className="w-4 h-4 mr-1" />
+                            Validate All
+                        </Button>
+                    )}
                 </div>
             )}
 
             {/* Events list */}
             <div className="space-y-4">
                 {events.map((ev, idx) => (
-                    <Card 
-                        key={ev.id || `ev-${ev.eventId}-${idx}`} 
+                    <Card
+                        key={ev.id || `ev-${ev.eventId}-${idx}`}
                         className={`group transition-all ${isValidated(ev.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
                     >
                         <CardContent className="p-4">
@@ -498,17 +520,15 @@ function Stage4Events() {
                                     <div className="flex items-center gap-3 mb-2">
                                         <button
                                             onClick={() => toggleValidation('events', ev.id)}
-                                            className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${
-                                                isValidated(ev.id) 
-                                                    ? 'bg-verde-claro/20 text-verde-claro' 
-                                                    : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                            }`}
+                                            className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(ev.id)
+                                                ? 'bg-verde-claro/20 text-verde-claro'
+                                                : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                                }`}
                                         >
-                                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                                                isValidated(ev.id) 
-                                                    ? 'border-verde-claro bg-verde-claro' 
-                                                    : 'border-areia'
-                                            }`}>
+                                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(ev.id)
+                                                ? 'border-verde-claro bg-verde-claro'
+                                                : 'border-areia'
+                                                }`}>
                                                 {isValidated(ev.id) && <Check className="w-3 h-3 text-white" />}
                                             </div>
                                             <span className="text-xs font-medium">
@@ -531,6 +551,45 @@ function Stage4Events() {
                                             </span>
                                         )}
                                     </div>
+
+                                    {(() => {
+                                        // Match event clauseId (DB UUID) to DB clause
+                                        const dbClause = dbClauses.find(c => c.id === ev.clauseId)
+                                        // Also try matching with BHSA clause via clauseIndex for display
+                                        const bhsaClause = dbClause 
+                                            ? passageData?.clauses?.find(c => c.clause_id === dbClause.clauseIndex)
+                                            : null
+
+                                        if (!ev.clauseId) {
+                                            return (
+                                                <div className="mt-2 mb-3 pl-3 border-l-2 border-amarelo/20">
+                                                    <p className="text-xs text-amarelo/70 italic">(No segment linked)</p>
+                                                </div>
+                                            )
+                                        }
+
+                                        // Use DB clause freeTranslation, or BHSA clause data
+                                        const translation = dbClause?.freeTranslation || bhsaClause?.freeTranslation
+                                        const clauseText = dbClause?.text || bhsaClause?.text
+                                        const clauseGloss = dbClause?.gloss || bhsaClause?.gloss
+
+                                        return (
+                                            <div className="mt-2 mb-3 pl-3 border-l-2 border-telha/20">
+                                                {clauseText && (
+                                                    <p className="text-right text-lg font-serif text-preto mb-1" dir="rtl">{clauseText}</p>
+                                                )}
+                                                {clauseGloss && (
+                                                    <p className="text-sm text-verde italic mb-1">{clauseGloss}</p>
+                                                )}
+                                                {translation && (
+                                                    <p className="text-sm text-telha italic">"{translation}"</p>
+                                                )}
+                                                {!clauseText && !translation && (
+                                                    <p className="text-xs text-cinza/50 italic">(No clause data available)</p>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
 
                                     {ev.roles && ev.roles.length > 0 && (
                                         <div className="flex flex-wrap gap-2 mt-2">
@@ -603,6 +662,27 @@ function Stage4Events() {
                                 options={EVENT_CATEGORIES}
                                 onChange={(v) => setFormData({ ...formData, category: v })}
                             />
+                        </div>
+
+                        {/* Clause Selection - use DB clauses with UUID values */}
+                        <div>
+                            <label className="text-sm font-medium text-preto mb-1.5 block">Associated Segment (Clause)</label>
+                            <Select
+                                value={formData.clauseId || "unassigned"}
+                                onValueChange={(v) => setFormData({ ...formData, clauseId: v === "unassigned" ? undefined : v })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a clause..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="unassigned">-- Unassigned --</SelectItem>
+                                    {dbClauses.map((c: any) => (
+                                        <SelectItem key={c.id} value={c.id}>
+                                            {c.clauseIndex}: {c.text}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
 
                         <div>
@@ -708,18 +788,18 @@ function Stage4Events() {
                                             label="Speech Act Type"
                                             value={formData.speechAct?.type}
                                             options={SPEECH_ACTS}
-                                            onChange={(v) => setFormData({ 
-                                                ...formData, 
-                                                speechAct: { ...formData.speechAct, type: v } 
+                                            onChange={(v) => setFormData({
+                                                ...formData,
+                                                speechAct: { ...formData.speechAct, type: v }
                                             })}
                                         />
                                         <SelectField
                                             label="Quotation Type"
                                             value={formData.speechAct?.quotationType}
                                             options={QUOTATION_TYPES}
-                                            onChange={(v) => setFormData({ 
-                                                ...formData, 
-                                                speechAct: { ...formData.speechAct, quotationType: v } 
+                                            onChange={(v) => setFormData({
+                                                ...formData,
+                                                speechAct: { ...formData.speechAct, quotationType: v }
                                             })}
                                         />
                                     </div>
@@ -733,36 +813,36 @@ function Stage4Events() {
                                         label="Register"
                                         value={formData.pragmatic?.register}
                                         options={DISCOURSE_REGISTERS}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            pragmatic: { ...formData.pragmatic, register: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            pragmatic: { ...formData.pragmatic, register: v }
                                         })}
                                     />
                                     <SelectField
                                         label="Social Axis"
                                         value={formData.pragmatic?.socialAxis}
                                         options={SOCIAL_AXES}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            pragmatic: { ...formData.pragmatic, socialAxis: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            pragmatic: { ...formData.pragmatic, socialAxis: v }
                                         })}
                                     />
                                     <SelectField
                                         label="Prominence"
                                         value={formData.pragmatic?.prominence}
                                         options={PROMINENCE_LEVELS}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            pragmatic: { ...formData.pragmatic, prominence: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            pragmatic: { ...formData.pragmatic, prominence: v }
                                         })}
                                     />
                                     <SelectField
                                         label="Pacing"
                                         value={formData.pragmatic?.pacing}
                                         options={PACING_OPTIONS}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            pragmatic: { ...formData.pragmatic, pacing: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            pragmatic: { ...formData.pragmatic, pacing: v }
                                         })}
                                     />
                                 </div>
@@ -844,18 +924,18 @@ function Stage4Events() {
                                         label="Narrator Stance"
                                         value={formData.narratorStance?.stance}
                                         options={NARRATOR_STANCES}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            narratorStance: { stance: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            narratorStance: { stance: v }
                                         })}
                                     />
                                     <SelectField
                                         label="Intended Audience Response"
                                         value={formData.audienceResponse?.response}
                                         options={AUDIENCE_RESPONSES}
-                                        onChange={(v) => setFormData({ 
-                                            ...formData, 
-                                            audienceResponse: { response: v } 
+                                        onChange={(v) => setFormData({
+                                            ...formData,
+                                            audienceResponse: { response: v }
                                         })}
                                     />
                                 </div>
@@ -876,7 +956,7 @@ function Stage4Events() {
                                         />
                                         <label className="text-sm">Contains figurative language</label>
                                     </div>
-                                    
+
                                     {formData.figurative?.isFigurative && (
                                         <div className="grid grid-cols-2 gap-4">
                                             <SelectField

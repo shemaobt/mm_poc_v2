@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
-import { bhsaAPI, mapsAPI } from '../../services/api'
+import { bhsaAPI, mapsAPI, passagesAPI } from '../../services/api'
+import { useAuth } from '../../contexts/AuthContext'
 import { toast } from 'sonner'
 import { DiscourseRelationCreate } from '../../types'
 import { Card, CardContent } from '../ui/card'
@@ -55,14 +56,18 @@ function Stage5Discourse() {
         toggleValidation,
         validateAll
     } = usePassageStore()
-    
+
+    const { isAdmin } = useAuth()
+
     // Validation helpers
     const isValidated = (id: string) => validated.discourse.has(id)
-    const validatedCount = validated.discourse.size
+    const validatedCount = discourse.filter(d => validated.discourse.has(d.id)).length
     const allValidated = discourse.length > 0 && discourse.every(d => validated.discourse.has(d.id))
     const [showModal, setShowModal] = useState(false)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
+    // DB clauses with UUIDs - needed to match event.clauseId to actual clause data
+    const [dbClauses, setDbClauses] = useState<any[]>([])
     const [formData, setFormData] = useState<DiscourseRelationCreate>({
         relationType: 'sequence',
         sourceId: '',
@@ -70,11 +75,26 @@ function Stage5Discourse() {
     })
 
     useEffect(() => {
-        // Only fetch from DB if no discourse in store (avoid overwriting AI-generated data)
-        if (passageData?.id && discourse.length === 0) {
-            fetchDiscourse(passageData.id)
+        if (passageData?.id) {
+            // Fetch DB clauses for clause matching
+            fetchDbClauses(passageData.id)
+            // Only fetch from DB if no discourse in store (avoid overwriting AI-generated data)
+            if (discourse.length === 0) {
+                fetchDiscourse(passageData.id)
+            }
         }
     }, [passageData?.id])
+
+    const fetchDbClauses = async (passageId: string) => {
+        try {
+            const passage = await passagesAPI.get(passageId)
+            if (passage?.clauses) {
+                setDbClauses(passage.clauses)
+            }
+        } catch (err: any) {
+            console.error('Failed to fetch DB clauses:', err)
+        }
+    }
 
     const fetchDiscourse = async (passageId: string) => {
         try {
@@ -162,14 +182,25 @@ function Stage5Discourse() {
         // Look up by id (UUID) or eventId (e.g. "e1", "e2")
         const ev = events.find(e => e.id === eventId || e.eventId === eventId)
         if (!ev) return { id: eventId, core: 'Unknown', category: 'ACTION', clause: null, roles: [] }
+
+        // Find the associated clause from DB clauses (event.clauseId is a UUID)
+        const dbClause = dbClauses.find(c => c.id === ev.clauseId)
+        // Also try matching with BHSA clause via clauseIndex for display
+        const bhsaClause = dbClause 
+            ? passageData?.clauses?.find(c => c.clause_id === dbClause.clauseIndex)
+            : null
         
-        // Find the associated clause for text display
-        const clause = passageData?.clauses?.find(c => c.clause_id?.toString() === ev.clauseId)
-        
+        // Use DB clause data first, fall back to BHSA clause
+        const clause = dbClause ? {
+            text: dbClause.text,
+            gloss: dbClause.gloss || bhsaClause?.gloss,
+            freeTranslation: dbClause.freeTranslation || bhsaClause?.freeTranslation
+        } : null
+
         // Get role information with participant names - filter out empty roles
         const roles = (ev.roles || [])
             .map(role => {
-                const participant = participants.find(p => 
+                const participant = participants.find(p =>
                     p.id === role.participantId || p.participantId === role.participantId
                 )
                 const gloss = participant?.gloss || role.participantId
@@ -180,9 +211,9 @@ function Stage5Discourse() {
                 }
             })
             .filter(role => role.participantGloss && role.participantGloss.trim() !== '')
-        
-        return { 
-            id: ev.eventId, 
+
+        return {
+            id: ev.eventId,
             core: ev.eventCore,
             category: ev.category || 'ACTION',
             discourseFunction: ev.discourseFunction,
@@ -256,15 +287,17 @@ function Stage5Discourse() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => validateAll('discourse', discourse.map(d => d.id))}
-                        disabled={allValidated}
-                    >
-                        <Check className="w-4 h-4 mr-1" />
-                        Validate All
-                    </Button>
+                    {isAdmin && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => validateAll('discourse', discourse.map(d => d.id))}
+                            disabled={allValidated}
+                        >
+                            <Check className="w-4 h-4 mr-1" />
+                            Validate All
+                        </Button>
+                    )}
                 </div>
             )}
 
@@ -288,7 +321,7 @@ function Stage5Discourse() {
                                     {event.category}
                                 </Badge>
                             </div>
-                            
+
                             {/* Clause text if available */}
                             {event.clause && (
                                 <div className="px-3 py-2 border-t border-areia/30">
@@ -300,7 +333,7 @@ function Stage5Discourse() {
                                     </p>
                                 </div>
                             )}
-                            
+
                             {/* Roles */}
                             {event.roles && event.roles.length > 0 && (
                                 <div className="px-3 py-2 border-t border-areia/30 bg-white/50">
@@ -316,7 +349,7 @@ function Stage5Discourse() {
                                     </div>
                                 </div>
                             )}
-                            
+
                             {/* Discourse/Narrative function badges */}
                             {(event.discourseFunction || event.narrativeFunction) && (
                                 <div className="px-3 py-2 border-t border-areia/30 flex gap-2">
@@ -336,8 +369,8 @@ function Stage5Discourse() {
                     )
 
                     return (
-                        <Card 
-                            key={d.id || `d-${d.sourceId}-${d.targetId}-${idx}`} 
+                        <Card
+                            key={d.id || `d-${d.sourceId}-${d.targetId}-${idx}`}
                             className={`group transition-all ${isValidated(d.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
                         >
                             <CardContent className="p-4">
@@ -345,17 +378,15 @@ function Stage5Discourse() {
                                 <div className="flex items-center gap-2 mb-3">
                                     <button
                                         onClick={() => toggleValidation('discourse', d.id)}
-                                        className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${
-                                            isValidated(d.id) 
-                                                ? 'bg-verde-claro/20 text-verde-claro' 
-                                                : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                        }`}
+                                        className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(d.id)
+                                            ? 'bg-verde-claro/20 text-verde-claro'
+                                            : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                            }`}
                                     >
-                                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                                            isValidated(d.id) 
-                                                ? 'border-verde-claro bg-verde-claro' 
-                                                : 'border-areia'
-                                        }`}>
+                                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(d.id)
+                                            ? 'border-verde-claro bg-verde-claro'
+                                            : 'border-areia'
+                                            }`}>
                                             {isValidated(d.id) && <Check className="w-3 h-3 text-white" />}
                                         </div>
                                         <span className="text-xs font-medium">
@@ -363,7 +394,7 @@ function Stage5Discourse() {
                                         </span>
                                     </button>
                                 </div>
-                                
+
                                 <div className="flex items-start gap-4">
                                     {/* Source event */}
                                     <EventBox event={source} side="source" />
