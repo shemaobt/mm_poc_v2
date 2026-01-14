@@ -8,6 +8,10 @@ if [ -n "$GCS_SERVICE_ACCOUNT_JSON_B64" ]; then
     export GOOGLE_APPLICATION_CREDENTIALS=/app/gcs_creds.json
 fi
 
+# Generate Prisma client to ensure it matches schema
+echo "🔧 Generating Prisma client..."
+prisma generate
+
 # Run migrations in background to not block startup
 echo "🔄 Running database sync in background..."
 (prisma db push --accept-data-loss && python scripts/seed_admin.py) &
