@@ -858,7 +858,7 @@ function Stage4Events() {
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     {participants.map((p, idx) => (
-                                                        <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.participantId}>
+                                                        <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.id}>
                                                             {p.participantId}: {p.gloss}
                                                         </SelectItem>
                                                     ))}
