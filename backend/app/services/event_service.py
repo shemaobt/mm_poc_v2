@@ -548,7 +548,8 @@ class EventService:
             "id": event.id,
             "passageId": passage_id,
             "eventId": event.eventId,
-            "clauseId": event.clauseId,
+            # Map UUID to logical clause_id (1-based) for frontend linking
+            "clauseId": str(event.clause.clauseIndex + 1) if event.clause else None,
             "category": event.category,
             "eventCore": event.eventCore,
             "discourseFunction": event.discourseFunction,

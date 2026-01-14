@@ -25,18 +25,18 @@ SOURCE TEXT (Hebrew/English):
 {formatted_clauses}
     """
 
-def build_system_prompt() -> str:
-    """Construct the system prompt with comprehensive schema definition"""
+
+def build_participants_system_prompt() -> str:
+    """System prompt for Phase 1: Participants & Relations"""
     return f"""
     You are an expert Biblical Hebrew linguist and semantic analyst.
-    Your task is to analyze the provided Biblical Hebrew passage and extract semantic data 
+    Your task is to analyze the provided Biblical Hebrew passage and extract PARTICIPANTS and RELATIONS
     according to the Meaning Maps (TRIPOD) schema.
     
-    SCHEMA DEFINITION:
-    {json.dumps(TRIPOD_SCHEMA, indent=2)}
-    
     OUTPUT FORMAT:
-    You must return valid JSON only, matching this comprehensive structure:
+    Return valid JSON with 'participants' and 'relations' arrays only.
+    
+    SCHEMA EXCERPT:
     {{
         "participants": [
             {{ 
@@ -52,10 +52,55 @@ def build_system_prompt() -> str:
         "relations": [
             {{ "sourceId": "p1", "targetId": "p2", "category": "kinship", "type": "father_of" }},
             {{ "sourceId": "p3", "targetId": "p4", "category": "spatial", "type": "over" }}
-        ],
+        ]
+    }}
+    
+    ALLOWED VALUES:
+    - type: person, group, divine, animal, plant, object, place, abstract, time, event, collective_human, human, thing, location, deity, entity, concept, material, structure, building
+    - quantity: one, two, few, many, all, mass, unknown, unified_set, collective, dual, plural, singular
+    - referenceStatus: new_mention, known, pointed, kind, new, given, accessible, inferrable, brand_new, active
+    
+    PROPERTY DIMENSIONS & VALUES:
+    - color: red, blue, green, yellow, black, white, brown, golden, purple, gray
+    - size: big, small, tall, short, long, wide, narrow, thick, thin, huge, tiny
+    - age: old, young, new, ancient, fresh
+    - value: good, bad, beautiful, ugly, holy, unclean, righteous, wicked
+    - character: wise, foolish, kind, cruel, brave, faithful, humble, proud
+    - social_status: rich, poor, powerful, weak, honored, noble, free, slave
+    - unity: unified, divided, scattered
+    - language: one_language, many_languages
+    - function: communication, speech_content, material
+    - terrain: flat_plain, mountain, valley, river, desert
+    - region: Mesopotamia, Canaan, Egypt, Babylon
+    - direction: east, west, north, south
+    
+    RULES:
+    1. Extract all participants (people, groups, divine, distinct objects).
+    2. Identify relations between participants (kinship, spatial, possession, part_whole, social, origin).
+    3. Use ONLY the allowed values listed above.
+    4. Do NOT extract events or discourse relations in this phase.
+    """
+
+def build_events_system_prompt(participants_context: str) -> str:
+    """System prompt for Phase 2: Events & Discourse"""
+    return f"""
+    You are an expert Biblical Hebrew linguist and semantic analyst.
+    Your task is to analyze the provided Biblical Hebrew passage and extract EVENTS and DISCOURSE RELATIONS
+    according to the Meaning Maps (TRIPOD) schema.
+    
+    CONTEXT:
+    The following participants have already been identified:
+    {participants_context}
+    
+    OUTPUT FORMAT:
+    Return valid JSON with 'events' and 'discourse' arrays only.
+    
+    SCHEMA EXCERPT:
+    {{
         "events": [
             {{ 
                 "eventId": "e1", 
+                "clauseId": "1",
                 "category": "ACTION",
                 "eventCore": "create", 
                 "discourseFunction": "mainline",
@@ -65,52 +110,14 @@ def build_system_prompt() -> str:
                     {{ "role": "doer", "participantId": "p1" }},
                     {{ "role": "undergoer", "participantId": "p2" }}
                 ],
-                "modifiers": {{
-                    "happened": "yes",
-                    "realness": "real",
-                    "when": "before_now",
-                    "viewpoint": "as_whole",
-                    "phase": "none",
-                    "repetition": "once",
-                    "onPurpose": "intended",
-                    "howKnown": "unspecified",
-                    "causation": "direct"
-                }},
-                "pragmatic": {{
-                    "register": "narrative_formal",
-                    "socialAxis": "divine_to_human",
-                    "prominence": "high",
-                    "pacing": "normal"
-                }},
-                "emotions": [
-                    {{
-                        "participantId": "p1",
-                        "primary": "satisfaction",
-                        "intensity": "medium",
-                        "source": "actional",
-                        "confidence": "medium"
-                    }}
-                ],
-                "narratorStance": {{ "stance": "neutral" }},
-                "audienceResponse": {{ "response": "awe" }},
-                "laTags": {{
-                    "emotionTags": ["wonder", "awe"],
-                    "eventTags": ["creation", "divine_action"],
-                    "registerTags": ["formal_narrative"],
-                    "discourseTags": ["opening"],
-                    "socialTags": ["divine_speech"]
-                }},
-                "figurative": {{
-                    "isFigurative": false
-                }},
-                "keyTerms": [
-                    {{
-                        "termId": "kt1",
-                        "sourceLemma": "ברא",
-                        "semanticDomain": "theological",
-                        "consistency": "always"
-                    }}
-                ]
+                "modifiers": {{ ... }},
+                "pragmatic": {{ ... }},
+                "emotions": [ ... ],
+                "narratorStance": {{ ... }},
+                "audienceResponse": {{ ... }},
+                "laTags": {{ ... }},
+                "figurative": {{ ... }},
+                "keyTerms": [ ... ]
             }}
         ],
         "discourse": [
@@ -118,7 +125,7 @@ def build_system_prompt() -> str:
         ]
     }}
     
-    MODIFIER VALUES (use these exact values):
+    MODIFIER VALUES:
     - happened: yes, no, uncertain
     - realness: real, possible, required, imagined
     - when: before_now, at_now, after_now, always
@@ -154,20 +161,37 @@ def build_system_prompt() -> str:
     - consistency: always, preferred, flexible
     
     RULES:
-    1. Extract all participants (people, groups, divine, distinct objects).
-    2. Map every main verbal clause to an Event with FULL details.
-    3. Identify relations between participants (kinship, spatial, possession, part_whole, social, origin).
-    4. Connect events with discourse relations.
-    5. For EACH event, provide:
-       - All modifiers (9 fields)
-       - Pragmatic info (register, social axis, prominence, pacing)
-       - Emotions if detectable (who feels what)
-       - Narrator stance and intended audience response
-       - LA Tags for retrieval
-       - Figurative language if present
-       - Key terms for important theological/ritual vocabulary
-    6. Be thorough but accurate - only mark emotions/figurative when evidence supports it.
+    1. Map every main verbal clause to an Event with FULL details.
+    2. Explicitly LINK every event to its source 'clauseId' provided in the text.
+    3. Connect events with discourse relations.
+    4. Use the provided participant IDs (p1, p2, etc.) in event roles.
+    5. Be thorough but ground all analysis in the provided text.
     """
+
+def build_translation_system_prompt() -> str:
+    """System prompt specifically for Stage 1 free translation"""
+    return """
+    You are an expert Bible translator, specializing in converting Hebrew syntax into natural, readable English.
+    
+    TASK:
+    Translate each provided Hebrew clause into a natural "free translation" in English.
+    
+    GUIDELINES:
+    1. Accuracy: Respect the Hebrew syntax, tense, and aspect, but prioritize English flow.
+    2. Readability: The output will be read by users who may not know Hebrew. It should sound like standard English.
+    3. Context: Ensure consecutive clauses flow logically together as a coherent narrative.
+    
+    OUTPUT FORMAT:
+    Return valid JSON mapping 'clause_id' to its translation.
+    Example:
+    {
+        "translations": {
+            "1": "Now it happened in the days when the judges ruled,",
+            "2": "that there was a famine in the land."
+        }
+    }
+    """
+
 
 # ============================================================
 # SERVICE FUNCTIONS (API Calls)
@@ -176,72 +200,173 @@ def build_system_prompt() -> str:
 class AIService:
     
     @staticmethod
-    async def analyze_passage(passage_data: Dict, api_key: str, model: str = "claude") -> Dict[str, Any]:
-        """
-        Main entry point for AI analysis
-        """
-        if model == "claude":
-            return await AIService._call_claude(passage_data, api_key)
-        else:
-            raise ValueError(f"Model {model} not supported")
+    async def analyze_participants(passage_data: Dict, api_key: str) -> Dict[str, Any]:
+        """Phase 1: Analyze Participants & Relations"""
+        print(f"[AI] Starting Phase 1: Participants & Relations for {passage_data.get('reference')}")
+        result = await AIService._call_claude_generic(
+            passage_data, 
+            api_key, 
+            system_prompt=build_participants_system_prompt(),
+            phase_name="Phase 1"
+        )
+        return {
+            "participants": result.get("participants", []),
+            "relations": result.get("relations", [])
+        }
 
     @staticmethod
-    async def _call_claude(passage_data: Dict, api_key: str) -> Dict[str, Any]:
+    async def analyze_events(passage_data: Dict, participants_context: str, api_key: str) -> Dict[str, Any]:
+        """Phase 2: Analyze Events & Discourse (requires Phase 1 context)"""
+        print(f"[AI] Starting Phase 2: Events & Discourse for {passage_data.get('reference')}")
+        result = await AIService._call_claude_generic(
+            passage_data, 
+            api_key, 
+            system_prompt=build_events_system_prompt(participants_context),
+            phase_name="Phase 2"
+        )
+        return {
+            "events": result.get("events", []),
+            "discourse": result.get("discourse", [])
+        }
+
+    @staticmethod
+    async def analyze_passage(passage_data: Dict, api_key: str, model: str = "claude") -> Dict[str, Any]:
         """
-        Call Anthropic Claude API
+        Main entry point for AI analysis - Orchestrates 2-Phase Analysis
+        DEPRECATED: Prefer calling phases individually for progress tracking.
+        """
+        try:
+            if model == "claude":
+                # Phase 1
+                phase1 = await AIService.analyze_participants(passage_data, api_key)
+                participants = phase1["participants"]
+                relations = phase1["relations"]
+                
+                # Context
+                participants_context = json.dumps(participants, indent=2, ensure_ascii=False)
+                
+                # Phase 2
+                phase2 = await AIService.analyze_events(passage_data, participants_context, api_key)
+                events = phase2["events"]
+                discourse = phase2["discourse"]
+                
+                # Merge
+                merged_result = {
+                    "participants": participants,
+                    "relations": relations,
+                    "events": events,
+                    "discourse": discourse
+                }
+                
+                print(f"[AI] Analysis Complete. Merged {len(participants)} participants, {len(relations)} relations, {len(events)} events, {len(discourse)} discourse relations.")
+                return merged_result
+                
+            else:
+                raise ValueError(f"Model {model} not supported")
+        except Exception as e:
+            print(f"[AI] Analysis Failed: {e}")
+            raise e
+
+    @staticmethod
+    async def translate_clauses(passage_data: Dict, api_key: str) -> Dict[str, str]:
+        """
+        Generate free translations for clauses
         """
         import time
-        
-        print(f"[AI] Starting Claude analysis for passage: {passage_data.get('reference')}")
-        start_time = time.time()
+        import asyncio
+        from app.services.ai_service import build_translation_system_prompt, build_passage_context # Ensure imports
+
+        print(f"[AI] Starting Clause Translation for: {passage_data.get('reference')}")
         
         client = anthropic.AsyncAnthropic(api_key=api_key)
         
         user_prompt = build_passage_context(passage_data)
-        system_prompt = build_system_prompt()
+        system_prompt = build_translation_system_prompt()
         
-        print(f"[AI] Prompts built. User prompt length: {len(user_prompt)} chars")
-        print(f"[AI] Calling Claude API with model: claude-opus-4-5-20251101, max_tokens: 16000")
+        retries = 5
+        base_delay = 3
         
-        try:
-            # Using the latest Opus 4.5 model as requested by user
-            message = await client.messages.create(
-                model="claude-opus-4-5-20251101",
-                max_tokens=16000,
-                temperature=0,
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": user_prompt}
-                ]
-            )
-            
-            api_time = time.time() - start_time
-            print(f"[AI] Claude API call completed in {api_time:.2f}s")
-            print(f"[AI] Response length: {len(message.content[0].text)} chars")
-            print(f"[AI] Usage: {message.usage}")
-            
-            # Parse response
-            print(f"[AI] Parsing JSON response...")
-            content = message.content[0].text
-            result = AIService._clean_and_parse_json(content)
-            
-            total_time = time.time() - start_time
-            print(f"[AI] Total analysis completed in {total_time:.2f}s")
-            print(f"[AI] Result summary: {len(result.get('participants', []))} participants, "
-                  f"{len(result.get('relations', []))} relations, "
-                  f"{len(result.get('events', []))} events, {len(result.get('discourse', []))} discourse relations")
-            
-            return result
-            
-        except Exception as e:
-            print(f"AI Error: {e}")
-            if hasattr(e, 'response'):
-                print(f"Response: {e.response}")
-            raise e
+        for attempt in range(retries):
+            try:
+                message = await client.messages.create(
+                    model="claude-opus-4-5-20251101",
+                    max_tokens=4000,
+                    temperature=0.3, # Slightly higher for natural flow
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                
+                content = message.content[0].text
+                result = AIService._clean_and_parse_json(content)
+                
+                translations = result.get("translations", {})
+                print(f"[AI] Translation complete. Generated {len(translations)} translations.")
+                return translations
+                
+            except Exception as e:
+                is_overloaded = "529" in str(e) or "overloaded" in str(e).lower()
+                if is_overloaded and attempt < retries - 1:
+                    sleep_time = base_delay * (2 ** attempt)
+                    print(f"[AI] API Overloaded (529). Retrying in {sleep_time}s... (Attempt {attempt + 1}/{retries})")
+                    await asyncio.sleep(sleep_time)
+                    continue
+                
+                print(f"[AI] Translation Error: {e}")
+                raise e
+
+    @staticmethod
+    async def _call_claude_generic(passage_data: Dict, api_key: str, system_prompt: str, phase_name: str = "Analysis") -> Dict[str, Any]:
+        """
+        Generic Claude API caller for different phases
+        """
+        import time
+        import asyncio
+        
+        start_time = time.time()
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        user_prompt = build_passage_context(passage_data)
+        
+        print(f"[AI] Calling Claude ({phase_name})...")
+        
+        retries = 5
+        base_delay = 3
+        
+        for attempt in range(retries):
+            try:
+                message = await client.messages.create(
+                    model="claude-opus-4-5-20251101",
+                    max_tokens=64000, # Increased limit safety net
+                    temperature=0,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                
+                api_time = time.time() - start_time
+                print(f"[AI] Claude ({phase_name}) completed in {api_time:.2f}s")
+                print(f"[AI] Usage: {message.usage}")
+                
+                content = message.content[0].text
+                result = AIService._clean_and_parse_json(content)
+                return result
+                
+            except Exception as e:
+                is_overloaded = "529" in str(e) or "overloaded" in str(e).lower()
+                if is_overloaded and attempt < retries - 1:
+                    sleep_time = base_delay * (2 ** attempt)
+                    print(f"[AI] API Overloaded (529). Retrying in {sleep_time}s... (Attempt {attempt + 1}/{retries})")
+                    await asyncio.sleep(sleep_time)
+                    continue
+                
+                print(f"AI Error ({phase_name}): {e}")
+                raise e
 
     @staticmethod
     def _clean_and_parse_json(content: str) -> Dict[str, Any]:
-        """Robuts JSON cleaning and parsing"""
+        """Robust JSON cleaning and parsing with truncation repair"""
         import re
         
         content = content.strip()
@@ -256,21 +381,76 @@ class AIService:
         # If still not bare JSON, try to find the outer braces
         if not (content.startswith("{") and content.endswith("}")):
             start = content.find("{")
-            end = content.rfind("}")
-            if start != -1 and end != -1:
-                content = content[start:end+1]
+            # Don't strictly enforce end brace if we suspect truncation
+            if start != -1:
+                content = content[start:]
         
         # Attempt to parse
         try:
             return json.loads(content)
-        except json.JSONDecodeError as e:
-            # Last ditch effort: try to fix common trailing comma issues
+        except json.JSONDecodeError:
+            # Attempt to repair truncation
             try:
-                # Remove trailing commas before closing braces/brackets
-                fixed_content = re.sub(r",\s*([\]}])", r"\1", content)
+                print(f"[AI] JSON parse failed. Attempting to repair truncation. Content length: {len(content)}")
+                fixed_content = AIService._repair_truncated_json(content)
                 return json.loads(fixed_content)
-            except Exception:
-                # Re-raise original error with context and FULL content for debugging
-                print(f"JSON PARSE FAILED. Content length: {len(content)}")
-                print(f"TAIL of content: {content[-500:]}")
-                raise e
+            except Exception as e2:
+                # Last ditch effort: try to fix common trailing comma issues
+                try:
+                    # Remove trailing commas before closing braces/brackets
+                    fixed_content = re.sub(r",\s*([\]}])", r"\1", content)
+                    return json.loads(fixed_content)
+                except Exception:
+                    # Re-raise original error with context
+                    print(f"[AI] JSON REPAIR FAILED. Content length: {len(content)}")
+                    print(f"TAIL of content: {content[-200:]}")
+                    raise e2
+
+    @staticmethod
+    def _repair_truncated_json(json_str: str) -> str:
+        """
+        Simple heuristic to close open braces/brackets for truncated JSON.
+        """
+        # Remove any trailing incomplete string (e.g. "val...)
+        # Find the last quote
+        last_quote_idx = json_str.rfind('"')
+        
+        stack = []
+        in_string = False
+        escape = False
+        
+        for i, char in enumerate(json_str):
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == '{':
+                    stack.append('}')
+                elif char == '[':
+                    stack.append(']')
+                elif char == '}' or char == ']':
+                    if stack:
+                        expected = stack.pop()
+                        if char != expected:
+                            json_str = json_str[:i]
+                            break
+                    else:
+                        pass
+        
+        if in_string:
+            json_str += '"'
+            
+        json_str = json_str.rstrip()
+        if json_str.endswith(','):
+            json_str = json_str[:-1]
+            
+        while stack:
+            json_str += stack.pop()
+            
+        return json_str
