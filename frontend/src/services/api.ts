@@ -31,7 +31,7 @@ export interface User {
     id: string
     username: string
     email: string
-    role: 'user' | 'admin'
+    roles: string[]
     isApproved: boolean
     createdAt: string
 }
@@ -82,8 +82,8 @@ export const usersAPI = {
         return response.data
     },
 
-    updateRole: async (userId: string, role: string) => {
-        const response = await apiClient.put(`/api/users/${userId}/role`, { role })
+    updateRoles: async (userId: string, roles: string[]) => {
+        const response = await apiClient.put(`/api/users/${userId}/role`, { roles })
         return response.data
     },
 

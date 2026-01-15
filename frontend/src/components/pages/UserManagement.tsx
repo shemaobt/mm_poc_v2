@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { usersAPI, User } from '../../services/api'
-import { UserCheck, UserX, Shield, RefreshCw } from 'lucide-react'
+import { UserCheck, UserX, RefreshCw } from 'lucide-react'
+
+const AVAILABLE_ROLES = ['admin', 'builder', 'validator', 'mentor', 'community', 'user']
 
 export default function UserManagement() {
     const [users, setUsers] = useState<User[]>([])
@@ -55,14 +57,24 @@ export default function UserManagement() {
         }
     }
 
-    const handleToggleRole = async (userId: string, currentRole: string) => {
-        const newRole = currentRole === 'admin' ? 'user' : 'admin'
+    const handleRoleToggle = async (userId: string, currentRoles: string[], roleToToggle: string) => {
         try {
-            setActionLoading(userId)
-            await usersAPI.updateRole(userId, newRole)
-            setUsers(users.map(u => u.id === userId ? { ...u, role: newRole as 'user' | 'admin' } : u))
+            setActionLoading(`${userId}-${roleToToggle}`)
+
+            let newRoles: string[]
+            if (currentRoles.includes(roleToToggle)) {
+                newRoles = currentRoles.filter(r => r !== roleToToggle)
+            } else {
+                newRoles = [...currentRoles, roleToToggle]
+            }
+
+            // Ensure at least one role remains? Optional. For now allow simple toggling.
+            // If removing 'user' and it's the last one, maybe warn? But schema default is user.
+
+            await usersAPI.updateRoles(userId, newRoles)
+            setUsers(users.map(u => u.id === userId ? { ...u, roles: newRoles } : u))
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to update role')
+            setError(err.response?.data?.detail || 'Failed to update roles')
         } finally {
             setActionLoading(null)
         }
@@ -137,9 +149,8 @@ export default function UserManagement() {
                             <tr>
                                 <th className="px-4 py-3">Username</th>
                                 <th className="px-4 py-3">Email</th>
-                                <th className="px-4 py-3">Role</th>
+                                <th className="px-4 py-3">Roles</th>
                                 <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -148,33 +159,33 @@ export default function UserManagement() {
                                     <td className="px-4 py-3 font-medium text-gray-900">{user.username}</td>
                                     <td className="px-4 py-3 text-gray-500">{user.email}</td>
                                     <td className="px-4 py-3">
-                                        <Badge variant={user.role === 'admin' ? 'default' : 'object'}>
-                                            {user.role}
-                                        </Badge>
+                                        <div className="flex flex-wrap gap-1">
+                                            {AVAILABLE_ROLES.map(role => {
+                                                const hasRole = user.roles.includes(role);
+                                                const isLoading = actionLoading === `${user.id}-${role}`;
+                                                return (
+                                                    <Badge
+                                                        key={role}
+                                                        variant={hasRole ? (role === 'admin' ? 'default' : 'secondary') : 'outline'}
+                                                        className={`cursor-pointer select-none ${!hasRole ? 'opacity-50 hover:opacity-100' : ''} ${isLoading ? 'animate-pulse' : ''}`}
+                                                        onClick={() => handleRoleToggle(user.id, user.roles, role)}
+                                                    >
+                                                        {role}
+                                                    </Badge>
+                                                )
+                                            })}
+                                        </div>
                                     </td>
                                     <td className="px-4 py-3">
                                         <Badge variant={user.isApproved ? 'success' : 'warning'} className={user.isApproved ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
                                             {user.isApproved ? 'Approved' : 'Pending'}
                                         </Badge>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex gap-1">
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={() => handleToggleRole(user.id, user.role)}
-                                                disabled={actionLoading === user.id}
-                                                title={user.role === 'admin' ? 'Demote to user' : 'Promote to admin'}
-                                            >
-                                                <Shield className={`w-4 h-4 ${user.role === 'admin' ? 'text-telha' : 'text-gray-400'}`} />
-                                            </Button>
-                                        </div>
-                                    </td>
                                 </tr>
                             ))}
                             {users.length === 0 && !loading && (
                                 <tr>
-                                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
                                         No users found
                                     </td>
                                 </tr>
