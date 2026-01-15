@@ -16,7 +16,7 @@ class UserListItem(BaseModel):
     id: str
     username: str
     email: str
-    role: str
+    roles: List[str]
     isApproved: bool
     createdAt: str
 
@@ -25,8 +25,8 @@ class UsersListResponse(BaseModel):
     users: List[UserListItem]
 
 
-class RoleUpdateRequest(BaseModel):
-    role: str
+class RolesUpdateRequest(BaseModel):
+    roles: List[str]
 
 
 @router.get("", response_model=UsersListResponse)
@@ -44,7 +44,7 @@ async def list_users(admin: dict = Depends(get_admin_user)):
                 id=u.id,
                 username=u.username,
                 email=u.email,
-                role=u.role,
+                roles=u.roles,
                 isApproved=u.isApproved,
                 createdAt=u.createdAt.isoformat()
             )
@@ -92,31 +92,33 @@ async def reject_user(user_id: str, admin: dict = Depends(get_admin_user)):
 
 
 @router.put("/{user_id}/role")
-async def update_user_role(
+async def update_user_roles(
     user_id: str,
-    request: RoleUpdateRequest,
+    request: RolesUpdateRequest,
     admin: dict = Depends(get_admin_user)
 ):
-    """Update user role (admin only)"""
+    """Update user roles (admin only)"""
     db = get_db()
     
-    if request.role not in ["user", "admin"]:
-        raise HTTPException(status_code=400, detail="Invalid role. Must be 'user' or 'admin'")
+    valid_roles = ["user", "admin", "validator", "mentor", "community", "builder"]
+    for r in request.roles:
+        if r not in valid_roles:
+             raise HTTPException(status_code=400, detail=f"Invalid role: {r}. Must be one of {valid_roles}")
     
     user = await db.user.find_unique(where={"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Don't allow demoting yourself
-    if user_id == admin["sub"] and request.role != "admin":
-        raise HTTPException(status_code=400, detail="Cannot demote yourself")
+    # Don't allow removing admin from yourself if you are the user being updated
+    if user_id == admin["sub"] and "admin" not in request.roles:
+        raise HTTPException(status_code=400, detail="Cannot remove admin role from yourself")
     
     updated = await db.user.update(
         where={"id": user_id},
-        data={"role": request.role}
+        data={"roles": request.roles}
     )
     
-    return {"message": f"User role updated to {request.role}", "user_id": user_id}
+    return {"message": f"User roles updated to {request.roles}", "user_id": user_id}
 
 
 @router.delete("/{user_id}")
@@ -151,7 +153,7 @@ class UserProgressItem(BaseModel):
     id: str
     username: str
     email: str
-    role: str
+    roles: List[str]
     completedPassages: int
     inProgressPassages: int
     currentLocks: List[PericopeLockInfo]
@@ -212,7 +214,7 @@ async def get_user_progress(admin: dict = Depends(get_admin_user)):
             id=user.id,
             username=user.username,
             email=user.email,
-            role=user.role,
+            roles=user.roles,
             completedPassages=completed_count,
             inProgressPassages=in_progress_count,
             currentLocks=lock_info,

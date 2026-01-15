@@ -4,7 +4,7 @@ Signup, login, and user info endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import List, Optional
 from datetime import timedelta
 
 from app.core.database import get_db
@@ -39,7 +39,7 @@ class UserResponse(BaseModel):
     id: str
     username: str
     email: str
-    role: str
+    roles: List[str]
     isApproved: bool
     createdAt: str
 
@@ -79,7 +79,7 @@ async def signup(request: SignupRequest):
             "username": request.username,
             "email": request.email,
             "passwordHash": password_hash,
-            "role": "user",
+            "roles": ["user"],
             "isApproved": False
         }
     )
@@ -88,7 +88,7 @@ async def signup(request: SignupRequest):
         id=user.id,
         username=user.username,
         email=user.email,
-        role=user.role,
+        roles=user.roles,
         isApproved=user.isApproved,
         createdAt=user.createdAt.isoformat()
     )
@@ -120,7 +120,7 @@ async def login(request: LoginRequest):
         "sub": user.id,
         "username": user.username,
         "email": user.email,
-        "role": user.role,
+        "roles": user.roles,
         "is_approved": user.isApproved
     }
     
@@ -149,7 +149,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         id=user.id,
         username=user.username,
         email=user.email,
-        role=user.role,
+        roles=user.roles,
         isApproved=user.isApproved,
         createdAt=user.createdAt.isoformat()
     )
