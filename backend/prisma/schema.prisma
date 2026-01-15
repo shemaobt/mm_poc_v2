@@ -13,6 +13,25 @@ datasource db {
 }
 
 // ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  USER
+  VALIDATOR
+  MENTOR
+  COMMUNITY
+  ADMIN
+}
+
+enum ApprovalStatus {
+  WAITING
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+// ============================================================
 // USER & AUTH
 // ============================================================
 
@@ -21,7 +40,7 @@ model User {
   username      String   @unique
   email         String   @unique
   passwordHash  String
-  role          String   @default("user") // "user" or "admin"
+  roles         String[] @default(["user"]) // ["user", "admin", "validator", "mentor", "community", "builder"] 
   isApproved    Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -44,6 +63,12 @@ model Passage {
   thematicSpine  String?  @db.Text // One-sentence summary
   isComplete     Boolean  @default(false) // Analysis complete
   completedAt    DateTime? // When analysis was completed
+  
+  // Stage 6: Tripod Studio Approvals
+  validatorStatus ApprovalStatus @default(PENDING)
+  mentorStatus    ApprovalStatus @default(WAITING)
+  communityStatus ApprovalStatus @default(WAITING)
+  
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   
@@ -56,12 +81,29 @@ model Passage {
   participantRelations ParticipantRelation[]
   events               Event[]
   discourseRelations   DiscourseRelation[]
+  rehearsals           Rehearsal[]
   
   // Metrics relation
   aiSnapshots          AISnapshot[]
   metricsSummary       MetricsSummary?
 
   @@map("passages")
+}
+
+model Rehearsal {
+  id              String   @id @default(uuid())
+  passageId       String
+  targetLanguage  String   @default("english")
+  fullText        String   @db.Text
+  segments        Json     // List of {index, text, audioUrl, duration}
+  fullAudioUrl    String?
+  selectedVoiceId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  passage         Passage  @relation(fields: [passageId], references: [id], onDelete: Cascade)
+
+  @@map("rehearsals")
 }
 
 model Clause {
