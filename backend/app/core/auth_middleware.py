@@ -108,9 +108,13 @@ async def get_admin_user(
     current_user: dict = Depends(get_current_approved_user)
 ) -> dict:
     """Require admin role"""
-    if current_user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
+    roles = current_user.get("roles", [])
+    # Support backward compatibility for a moment or just check roles list
+    if "admin" not in roles:
+         # Fallback check for legacy role field if it exists temporarily
+        if current_user.get("role") != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
     return current_user
