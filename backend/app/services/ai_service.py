@@ -111,6 +111,7 @@ def build_events_system_prompt(participants_context: str) -> str:
                     {{ "role": "undergoer", "participantId": "p2" }}
                 ],
                 "modifiers": {{ ... }},
+                "speechAct": {{ "type": "stating", "quotationType": "direct" }},
                 "pragmatic": {{ ... }},
                 "emotions": [ ... ],
                 "narratorStance": {{ ... }},
@@ -135,6 +136,10 @@ def build_events_system_prompt(participants_context: str) -> str:
     - onPurpose: intended, unintended, unclear
     - howKnown: saw_it, sensed_it, figured_out, was_told, unspecified
     - causation: direct, caused, allowed, helped
+    
+    SPEECH ACT VALUES:
+    - type: stating, asking_yes_no, asking_what, asking_why, asking_how, ordering, forbidding, requesting, wishing, promising, warning, greeting, exclaiming, blessing, cursing
+    - quotationType: direct, indirect, free_indirect
     
     PRAGMATIC VALUES:
     - register: narrative_formal, narrative_casual, speech_formal, speech_casual, ceremonial, legal, poetic, prophetic
@@ -166,6 +171,7 @@ def build_events_system_prompt(participants_context: str) -> str:
     3. Connect events with discourse relations.
     4. Use the provided participant IDs (p1, p2, etc.) in event roles.
     5. Be thorough but ground all analysis in the provided text.
+    6. For events with category 'SPEECH' or 'COMMUNICATION', you MUST include the 'speechAct' object.
     """
 
 def build_translation_system_prompt() -> str:
