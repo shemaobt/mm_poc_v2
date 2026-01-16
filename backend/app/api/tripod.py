@@ -34,9 +34,216 @@ class ApprovalUpdate(BaseModel):
     role: str # "validator", "mentor", "community"
     status: str # "WAITING", "PENDING", "APPROVED", "CHANGES_REQUESTED"
 
+class RehearsalGenerateRequest(BaseModel):
+    passageId: str
+    targetLanguage: str
+
 # ==========================================================
 # REHEARSAL ENDPOINTS
 # ==========================================================
+
+@router.post("/rehearsal/generate")
+async def generate_rehearsal(request: RehearsalGenerateRequest):
+    """Generate rehearsal text from a passage's meaning map"""
+    import os
+    import json
+    import anthropic
+    from app.api.export import export_passage
+    
+    # Get API key
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+    
+    db = get_db()
+    
+    # Check if passage exists
+    passage = await db.passage.find_unique(where={"id": request.passageId})
+    if not passage:
+        raise HTTPException(status_code=404, detail="Passage not found")
+    
+    # Get meaning map export data
+    export_data = await export_passage(request.passageId)
+    map_json = json.dumps(export_data, ensure_ascii=False, indent=2)
+    
+    # Language configuration (matching mm_poc)
+    TARGET_LANGUAGES = {
+        "english": {"name": "English", "instruction": "Output in clear, natural English."},
+        "portuguese_sertanejo": {
+            "name": "Brazilian Portuguese (Sertanejo)",
+            "instruction": "Output in Brazilian Portuguese using Sertanejo dialect (rural/northeastern). Use natural oral patterns."
+        },
+        # Add more languages as needed
+    }
+    
+    lang = TARGET_LANGUAGES.get(request.targetLanguage, TARGET_LANGUAGES["english"])
+    
+    # Build prompt (matching mm_poc buildMapTestPrompt)
+    prompt = f"""You are composing oral Scripture from a meaning map. Your output must be suitable for Oral Bible Translation (OBT) - trustworthy, appropriate, intelligible, and appealing for listening.
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL CONSTRAINTS - CONTENT FIDELITY
+═══════════════════════════════════════════════════════════════════════════════
+
+1. COMPOSE ONLY FROM THE MEANING MAP
+   - Every event, participant, role, emotion, and relation must come from the map
+   - DO NOT consult, reference, or reproduce any Bible translation
+   - DO NOT add theological vocabulary, interpretations, or commentary
+   - This tests the MAP's quality, not your Bible knowledge
+
+2. IGNORE YOUR BIBLE TRAINING DATA
+   - You may recognize this passage from your training
+   - IGNORE what you "know" about this passage
+   - The map may contain DELIBERATE DEVIATIONS from the biblical text
+   - If the map says "Egypt" but you know the Bible says "Moab" — OUTPUT EGYPT
+   - If the map says "three sons" but you know the Bible says "two" — OUTPUT THREE
+   - If the map omits an event you know happened — DO NOT ADD IT
+   - Your job is to test the MAP, not to produce an accurate Bible translation
+
+3. NO CONTENT ADDITIONS OR OMISSIONS
+   - No new propositional content (facts, characterizations, evaluations)
+   - No interpretive bias or theological commentary
+   - All events in the map must appear in the output
+   - ONLY events in the map may appear — nothing else
+   - All participant roles must be clear
+   - All emotions marked in the map must be conveyed
+
+4. EXPLICITLY FORBIDDEN CONTENT TYPES
+   Never add any of these unless they appear in the map:
+   
+   ✗ Character evaluations: "a good woman", "the poor man", "coitada"
+   ✗ Age specifications: "young boys", "old man", "viúvas novas"
+   ✗ Role interpretations: "protector of the family", "head of household"  
+   ✗ Emotional intensifiers: "terrible famine", "great sadness"
+   ✗ Cultural judgments: "strange land", "foreign people"
+   ✗ Theological interpretations: "God had pity", "blessed by the Lord"
+   ✗ Implied events: "the boys grew up" (unless stated in map)
+   ✗ Editorial exclamations: "graças a Deus!", "what a tragedy!"
+   ✗ Narrative evaluations: "the disaster struck again", "things got worse"
+   
+   If the map doesn't specify an emotion, age, evaluation, or interpretation — DO NOT ADD IT.
+
+═══════════════════════════════════════════════════════════════════════════════
+ORAL SCRIPTURE REQUIREMENTS - PERFORMANCE FRAMING
+═══════════════════════════════════════════════════════════════════════════════
+
+Oral communication requires PROCESS elements (performance framing) that help listeners 
+follow the narrative. These are NOT content additions - they manage the communication 
+channel. You MUST include these three types of oral metadiscourse:
+
+1. ATTENTIONAL MARKERS (Phatic Function)
+   - Recruit and sustain listener focus
+   - Equivalent to Hebrew הִנֵּה (hineh) / Greek ἰδού (idou)
+   ✓ ALLOWED: "Listen..." / "Now hear this..." / "Pay attention..."
+   ✗ FORBIDDEN: "Listen, for this is important..." (evaluates content)
+
+2. STRUCTURAL MARKERS (Discursive Function)  
+   - Orient listener in time, location, topic transitions
+   - Aural equivalent of paragraph breaks or section headings
+   ✓ ALLOWED: "That was how X happened. Now..." / "Some time later..."
+   ✗ FORBIDDEN: "That was the brave act of X..." (adds characterization)
+
+3. TURN-TAKING MARKERS (Deictic Function)
+   - Clarify who is speaking in dialogue
+   - Essential because oral delivery has no quotation marks
+   ✓ ALLOWED: "Then the woman said..." / "He replied..."
+   ✗ FORBIDDEN: "Then the woman, filled with grief, said..." (adds emotion not in map)
+
+THE SUBTRACTION RULE: A marker is legitimate ONLY IF:
+- Removing it causes confusion about timeline, speaker, or structure
+- Including it adds ZERO new theological or narrative facts
+
+═══════════════════════════════════════════════════════════════════════════════
+TARGET LANGUAGE & REGISTER
+═══════════════════════════════════════════════════════════════════════════════
+
+{lang["instruction"]}
+
+Use ORAL, SPOKEN register throughout:
+- Natural speech patterns, not literary/written style
+- Appropriate for a skilled storyteller addressing a live audience
+- You may reorder events if natural for target language discourse
+- Use repetition for memory and emphasis where culturally appropriate
+- Segment information to prevent cognitive overload
+
+═══════════════════════════════════════════════════════════════════════════════
+MEANING MAP
+═══════════════════════════════════════════════════════════════════════════════
+
+{map_json}
+
+═══════════════════════════════════════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════════════════════════════════════
+
+Compose the passage in {lang["name"]}.
+- Follow ONLY the events and relations from the map — nothing else
+- If the map contradicts your Bible knowledge, FOLLOW THE MAP
+- Express all emotions indicated for participants
+- Include necessary oral metadiscourse (attentional, structural, turn-taking markers)
+- Make it sound like natural oral storytelling
+- Add NO content beyond what the map provides
+
+Output ONLY the composed oral Scripture passage. No explanations, notes, or commentary."""
+    
+    # Call Anthropic API (using claude-sonnet-4-20250514 as mm_poc does)
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=16000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        generated_text = message.content[0].text.strip()
+        
+        # Segment the text (simple sentence-based segmentation)
+        segments = []
+        import re
+        sentences = re.split(r'[.!?]+[ \n]+', generated_text)
+        buffer = ''
+        for i, sentence in enumerate(sentences):
+            if sentence.strip():
+                buffer += sentence.strip()
+                if len(buffer) >= 40 or i == len(sentences) - 1:
+                    if buffer.strip():
+                        segments.append({
+                            "id": f"seg-{len(segments) + 1}",
+                            "index": len(segments),
+                            "text": buffer.strip(),
+                            "audioUrl": None,
+                            "duration": None
+                        })
+                    buffer = ''
+        
+        if not segments:
+            segments.append({
+                "id": "seg-1",
+                "index": 0,
+                "text": generated_text,
+                "audioUrl": None,
+                "duration": None
+            })
+        
+        # Save rehearsal
+        new_rehearsal = await db.rehearsal.create(
+            data={
+                "passageId": request.passageId,
+                "targetLanguage": request.targetLanguage,
+                "fullText": generated_text,
+                "segments": Json(segments),
+                "fullAudioUrl": None,
+                "selectedVoiceId": None
+            }
+        )
+        
+        return new_rehearsal
+        
+    except Exception as e:
+        print(f"Rehearsal generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate rehearsal: {str(e)}")
 
 @router.post("/rehearsal")
 async def save_rehearsal(rehearsal: RehearsalCreate):
