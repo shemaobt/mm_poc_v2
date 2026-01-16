@@ -369,8 +369,87 @@ async def _save_phase2_data(db, passage_id: str, analysis: dict) -> dict:
                         "discourseRegister": prag.get("register"), "socialAxis": prag.get("socialAxis"),
                         "prominence": prag.get("prominence"), "pacing": prag.get("pacing")
                     }}
+
+                sp = ev.get("speechAct", {})
+                if sp and sp.get("type"):
+                    event_data["speechAct"] = {"create": {
+                        "type": sp.get("type", "stating"),
+                        "quotationType": sp.get("quotationType")
+                    }}
                     
-                # ... (Include other sub-models same as before) ...
+                # Save Emotions
+                if ev.get("emotions"):
+                    emotion_creates = []
+                    for emo in ev["emotions"]:
+                        primary_val = emo.get("primary")
+                        if not primary_val:
+                            continue # Skip invalid emotions without primary type
+                            
+                        emo_data = {
+                            "primary": primary_val,
+                            "secondary": emo.get("secondary"),
+                            "intensity": emo.get("intensity", "medium"),
+                            "source": emo.get("source", "lexical"),
+                            "confidence": emo.get("confidence", "high"),
+                            "notes": emo.get("notes")
+                        }
+                        if emo.get("participantId"):
+                            p_id = participant_id_map.get(emo.get("participantId"))
+                            if p_id:
+                                emo_data["participant"] = {"connect": {"id": p_id}}
+                        emotion_creates.append(emo_data)
+                    if emotion_creates:
+                        event_data["emotions"] = {"create": emotion_creates}
+
+                # Save Narrator Stance
+                ns = ev.get("narratorStance", {})
+                if ns and ns.get("stance"):
+                    event_data["narratorStance"] = {"create": {"stance": ns.get("stance")}}
+
+                # Save Audience Response
+                ar = ev.get("audienceResponse", {})
+                if ar and ar.get("response"):
+                    event_data["audienceResponse"] = {"create": {"response": ar.get("response")}}
+
+                # Save LA Retrieval
+                la = ev.get("laRetrieval", {}) # Support both keys
+                if not la: la = ev.get("laTags", {})
+                
+                if la and any(la.values()):
+                    event_data["laRetrieval"] = {"create": {
+                        "emotionTags": Json(la.get("emotionTags") or []),
+                        "eventTags": Json(la.get("eventTags") or []),
+                        "registerTags": Json(la.get("registerTags") or []),
+                        "discourseTags": Json(la.get("discourseTags") or []),
+                        "socialTags": Json(la.get("socialTags") or [])
+                    }}
+
+                # Save Figurative
+                fig = ev.get("figurative", {})
+                if fig:
+                    event_data["figurative"] = {"create": {
+                        "isFigurative": True,
+                        "figureType": fig.get("figureType", ""),
+                        "sourceDomain": fig.get("sourceDomain"),
+                        "targetDomain": fig.get("targetDomain"),
+                        "literalMeaning": fig.get("literalMeaning"),
+                        "intendedMeaning": fig.get("intendedMeaning"),
+                        "transferability": fig.get("transferability"),
+                        "translationNote": fig.get("translationNote")
+                    }}
+
+                # Save Key Terms
+                if ev.get("keyTerms"):
+                    term_creates = []
+                    for kt in ev["keyTerms"]:
+                        term_creates.append({
+                            "termId": kt.get("termId", ""),
+                            "sourceLemma": kt.get("sourceLemma", ""),
+                            "semanticDomain": kt.get("semanticDomain", ""),
+                            "consistency": kt.get("consistency", "flexible")
+                        })
+                    if term_creates:
+                        event_data["keyTerms"] = {"create": term_creates}
                 
                 created = await db.event.create(
                     data=event_data,
