@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import connect_db, disconnect_db
-from app.api import passages, participants, relations, events, discourse, bhsa, ai, export, metrics, auth, users, pericopes, tripod
+from app.api import passages, participants, relations, events, discourse, bhsa, ai, export, metrics, auth, users, pericopes, tripod, audio
 from app.services.bhsa_service import get_bhsa_service
 import threading
 
@@ -76,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(export.router, prefix="/api/maps", tags=["Export"])
     app.include_router(metrics.router, prefix="/api/metrics", tags=["Metrics"])
     app.include_router(tripod.router, prefix="/api/tripod", tags=["Tripod Studio"])
+    app.include_router(audio.router, prefix="/api/audio", tags=["Audio"])
 
     @app.get("/")
     async def root():
