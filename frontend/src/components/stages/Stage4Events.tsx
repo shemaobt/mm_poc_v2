@@ -454,7 +454,7 @@ function Stage4Events() {
             const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
             return p && p.gloss && p.gloss.trim() !== ''
         })
-        
+
         const hasModifiers = ev.modifiers && Object.values(ev.modifiers).some(v => v !== null && v !== undefined && v !== '')
         const hasSpeechAct = ev.speechAct && (ev.speechAct.type || ev.speechAct.quotationType)
         const hasPragmatic = ev.pragmatic && Object.values(ev.pragmatic).some(v => v !== null && v !== undefined && v !== '')
@@ -470,7 +470,7 @@ function Stage4Events() {
         )
         const emotionsCount = (ev.emotions || []).length
         const keyTermsCount = (ev.keyTerms || []).length
-        
+
         return {
             roles: validRoles.length,
             modifiers: hasModifiers,
@@ -593,7 +593,7 @@ function Stage4Events() {
                                         // Match event clauseId (DB UUID) to DB clause
                                         const dbClause = dbClauses.find(c => c.id === ev.clauseId)
                                         // Also try matching with BHSA clause via clauseIndex for display
-                                        const bhsaClause = dbClause 
+                                        const bhsaClause = dbClause
                                             ? passageData?.clauses?.find(c => c.clause_id === dbClause.clauseIndex)
                                             : null
 
@@ -669,52 +669,52 @@ function Stage4Events() {
                                         return (
                                             <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-areia/20">
                                                 <span className="text-[10px] text-verde/60 mr-1">Fields:</span>
-                                                
+
                                                 {/* Roles */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.roles > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     👥 {indicators.roles}
                                                 </span>
-                                                
+
                                                 {/* Modifiers */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.modifiers ? 'bg-slate-100 text-slate-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     ⚙️ Mod
                                                 </span>
-                                                
+
                                                 {/* Speech Act */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.speechAct ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     💬 Speech
                                                 </span>
-                                                
+
                                                 {/* Pragmatic */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.pragmatic ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     🗣️ Prag
                                                 </span>
-                                                
+
                                                 {/* Emotions */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.emotions > 0 ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     💖 {indicators.emotions}
                                                 </span>
-                                                
+
                                                 {/* Narrator/Audience */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${(indicators.narratorStance || indicators.audienceResponse) ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     🎭 N/A
                                                 </span>
-                                                
+
                                                 {/* Figurative */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.figurative ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     🎨 Fig
                                                 </span>
-                                                
+
                                                 {/* Key Terms */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.keyTerms > 0 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     🔑 {indicators.keyTerms}
                                                 </span>
-                                                
+
                                                 {/* LA Tags */}
                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.laTags ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
                                                     📦 LA
                                                 </span>
-                                                
+
                                                 {/* Summary */}
                                                 <span className="text-[10px] text-verde/50 ml-2">
                                                     ({filledCount}/{totalFields})
@@ -876,7 +876,12 @@ function Stage4Events() {
                             </CollapsibleSection>
 
                             {/* Modifiers */}
-                            <CollapsibleSection title="Modifiers" emoji="⚙️" variant="modifiers">
+                            <CollapsibleSection
+                                title="Modifiers"
+                                emoji="⚙️"
+                                variant="modifiers"
+                                defaultOpen={Object.values(formData.modifiers || {}).some(v => !!v)}
+                            >
                                 <div className="grid grid-cols-3 gap-4">
                                     {Object.entries(MODIFIERS).map(([key, mod]) => (
                                         <SelectField
@@ -890,9 +895,14 @@ function Stage4Events() {
                                 </div>
                             </CollapsibleSection>
 
-                            {/* Speech Act (for SPEECH category) */}
-                            {formData.category === 'SPEECH' && (
-                                <CollapsibleSection title="Speech Act" emoji="💬" variant="speech">
+                            {/* Speech Act (for SPEECH category or if data exists) */}
+                            {(formData.category === 'SPEECH' || formData.category === 'COMMUNICATION' || formData.speechAct?.type || formData.speechAct?.quotationType) && (
+                                <CollapsibleSection
+                                    title="Speech Act"
+                                    emoji="💬"
+                                    variant="speech"
+                                    defaultOpen={true}
+                                >
                                     <div className="grid grid-cols-2 gap-4">
                                         <SelectField
                                             label="Speech Act Type"
