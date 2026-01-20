@@ -17,9 +17,11 @@ interface ExistingPassage {
     createdAt: string
 }
 
+
+
 /**
  * Check if a pericope reference contains partial verse indicators (a, b, c, etc.)
- * These are not supported by BHSA data.
+ * These are not supported by BHSA data fully, so we warn the user.
  * Examples: "Ruth 1:19b-2:2", "Ruth 1:8-19a", "Genesis 1:1a"
  */
 const hasPartialVerseIndicator = (reference: string): boolean => {
@@ -39,7 +41,7 @@ function Stage1Syntax() {
     const [translating, setTranslating] = useState(false)
     const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
     const { isAdmin, user } = useAuth()
-    
+
     // Lock state
     const [currentLock, setCurrentLock] = useState<string | null>(null) // Reference of currently held lock
     const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -49,7 +51,7 @@ function Stage1Syntax() {
         try {
             await pericopesAPI.lock(ref)
             setCurrentLock(ref)
-            
+
             // Start heartbeat to keep lock alive (every 30 seconds)
             if (heartbeatRef.current) {
                 clearInterval(heartbeatRef.current)
@@ -61,7 +63,7 @@ function Stage1Syntax() {
                     console.error('Heartbeat failed:', err)
                 }
             }, 30000)
-            
+
             return true
         } catch (err: any) {
             if (err.response?.status === 409) {
@@ -79,7 +81,7 @@ function Stage1Syntax() {
     const releaseLock = useCallback(async (ref?: string) => {
         const refToRelease = ref || currentLock
         if (!refToRelease) return
-        
+
         try {
             await pericopesAPI.unlock(refToRelease)
         } catch (err) {
@@ -128,20 +130,20 @@ function Stage1Syntax() {
         try {
             const locks = await pericopesAPI.getLocks()
             const myLock = locks.find(lock => lock.userId === user?.id)
-            
+
             if (myLock) {
                 // User has an active lock - restore the session
                 setCurrentLock(myLock.pericopeRef)
                 setReference(myLock.pericopeRef)
                 setSearchTerm(myLock.pericopeRef)
-                
+
                 // Find the pericope in the list and select it
                 const pericopes = await pericopesAPI.list({ search: myLock.pericopeRef, limit: 10 })
                 const matchingPericope = pericopes.find(p => p.reference === myLock.pericopeRef)
                 if (matchingPericope) {
                     setSelectedPericope(matchingPericope)
                 }
-                
+
                 // Start heartbeat for the existing lock
                 if (heartbeatRef.current) {
                     clearInterval(heartbeatRef.current)
@@ -153,19 +155,19 @@ function Stage1Syntax() {
                         console.error('Heartbeat failed:', err)
                     }
                 }, 30000)
-                
+
                 // Auto-fetch the passage data if not already loaded
                 if (!passageData || passageData.reference !== myLock.pericopeRef) {
                     toast.info('Restoring your session', {
                         description: `You were working on ${myLock.pericopeRef}`
                     })
-                    
+
                     // Fetch the passage
                     try {
                         setLoading(true)
                         setLoadingMessage('Restoring your previous session...')
                         const data = await bhsaAPI.fetchPassage(myLock.pericopeRef)
-                        
+
                         if (data.id || data.passage_id) {
                             setPassageData({
                                 id: data.id || data.passage_id,
@@ -225,14 +227,6 @@ function Stage1Syntax() {
     }
 
     const handleSelectPericope = (pericope: Pericope) => {
-        // Check if has partial verse indicators (not supported by BHSA)
-        if (hasPartialVerseIndicator(pericope.reference)) {
-            toast.error('Partial Verses Not Supported', {
-                description: 'BHSA data does not support partial verse references (like 19a, 19b). Please choose a pericope with complete verses.'
-            })
-            return
-        }
-        
         // Check if locked by another user
         if (pericope.lock && pericope.lock.userId !== user?.id) {
             toast.error('Pericope Locked', {
@@ -240,7 +234,7 @@ function Stage1Syntax() {
             })
             return
         }
-        
+
         setSelectedPericope(pericope)
         setReference(pericope.reference)
         setSearchTerm(pericope.reference)
@@ -341,18 +335,18 @@ function Stage1Syntax() {
             if (currentLock && currentLock !== reference) {
                 await releaseLock(currentLock)
             }
-            
+
             // Try to acquire lock for this pericope
             const lockAcquired = await acquireLock(reference)
             if (!lockAcquired) {
                 return // Lock failed, user was notified
             }
-            
+
             clearPassage() // Clear any existing data
             setLoading(true)
             setLoadingMessage('Fetching passage from BHSA...')
             setError(null)
-            
+
             // The BHSA endpoint creates the passage in DB and returns the ID
             const data = await bhsaAPI.fetchPassage(reference)
 
@@ -573,30 +567,30 @@ function Stage1Syntax() {
                                         const isLockedByOther = !!(pericope.lock && pericope.lock.userId !== user?.id)
                                         const isLockedByMe = !!(pericope.lock && pericope.lock.userId === user?.id)
                                         const hasPartialVerse = hasPartialVerseIndicator(pericope.reference)
-                                        const isDisabled = isLockedByOther || hasPartialVerse
-                                        
+                                        const isDisabled = isLockedByOther
+
                                         return (
                                             <button
                                                 key={pericope.id}
                                                 onClick={() => handleSelectPericope(pericope)}
                                                 disabled={isDisabled}
                                                 className={`w-full text-left px-4 py-2.5 transition-colors flex items-center justify-between gap-2 
-                                                    ${isDisabled 
-                                                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                                                        : selectedPericope?.id === pericope.id 
-                                                            ? 'bg-telha/10 text-telha' 
+                                                    ${isDisabled
+                                                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                                                        : selectedPericope?.id === pericope.id
+                                                            ? 'bg-telha/10 text-telha'
                                                             : 'text-preto hover:bg-areia/30'
                                                     }
                                                     ${isLockedByMe ? 'bg-verde-claro/10 border-l-2 border-verde-claro' : ''}
-                                                    ${hasPartialVerse ? 'border-l-2 border-red-300' : ''}
+                                                    ${hasPartialVerse && !isDisabled ? 'border-l-2 border-amber-300 bg-amber-50/30' : ''}
                                                 `}
                                             >
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className={`font-medium ${hasPartialVerse ? 'line-through opacity-60' : ''}`}>
+                                                    <span className="font-medium">
                                                         {pericope.reference}
                                                     </span>
                                                     {hasPartialVerse && (
-                                                        <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full" title="Partial verses are supported but may have limited data">
                                                             <AlertTriangle className="w-3 h-3" />
                                                             Partial verse
                                                         </span>

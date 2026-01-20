@@ -129,8 +129,7 @@ def parse_reference(ref_string: str) -> Tuple[str, int, int, int]:
     """
     ref_string = ref_string.strip()
     
-    # Pattern: Book Chapter:StartVerse-EndVerse
-    pattern = r'^(.+?)\s+(\d+):(\d+)-(\d+)$'
+    pattern = r'^(.+?)\s+(\d+):(\d+)[a-zA-Z]?-(\d+)[a-zA-Z]?$'
     match = re.match(pattern, ref_string)
     
     if match:
@@ -140,8 +139,7 @@ def parse_reference(ref_string: str) -> Tuple[str, int, int, int]:
         end_verse = int(match.group(4))
         return book, chapter, start_verse, end_verse
     
-    # Single verse: Book Chapter:Verse
-    pattern2 = r'^(.+?)\s+(\d+):(\d+)$'
+    pattern2 = r'^(.+?)\s+(\d+):(\d+)[a-zA-Z]?$'
     match2 = re.match(pattern2, ref_string)
     
     if match2:
