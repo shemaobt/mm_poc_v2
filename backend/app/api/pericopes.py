@@ -66,7 +66,11 @@ async def list_pericopes(
     
     pericopes = await db.pericope.find_many(
         where=where,
-        order={"reference": "asc"},
+        order=[
+            {"book": "asc"},
+            {"chapterStart": "asc"},
+            {"verseStart": "asc"},
+        ],
         take=limit,
     )
     
