@@ -6,12 +6,19 @@ interface ProgressBarProps {
     currentStage: number
     totalStages: number
     stageLabels?: string[]
+    onStageClick?: (stage: number) => void
 }
 
 const defaultLabels = ['Syntax', 'Participants', 'Relations', 'Events', 'Discourse']
 
-function ProgressBar({ currentStage, totalStages, stageLabels = defaultLabels }: ProgressBarProps) {
+function ProgressBar({ currentStage, totalStages, stageLabels = defaultLabels, onStageClick }: ProgressBarProps) {
     const progressPercent = ((currentStage - 1) / (totalStages - 1)) * 100
+
+    const handleStageClick = (stage: number) => {
+        if (onStageClick && stage !== currentStage) {
+            onStageClick(stage)
+        }
+    }
 
     return (
         <div className="py-6 px-6">
@@ -31,16 +38,27 @@ function ProgressBar({ currentStage, totalStages, stageLabels = defaultLabels }:
                         </span>
                     </div>
 
-                    {/* Step indicators */}
+                    {/* Step indicators - now clickable */}
                     <div className="flex items-center justify-between">
                         {stageLabels.map((label, index) => {
                             const stepNumber = index + 1
                             const isCompleted = stepNumber < currentStage
                             const isActive = stepNumber === currentStage
                             const isPending = stepNumber > currentStage
+                            const isClickable = onStageClick && stepNumber !== currentStage
 
                             return (
-                                <div key={stepNumber} className="flex flex-col items-center gap-2 flex-1">
+                                <button
+                                    key={stepNumber}
+                                    type="button"
+                                    onClick={() => handleStageClick(stepNumber)}
+                                    disabled={!isClickable}
+                                    className={cn(
+                                        "flex flex-col items-center gap-2 flex-1 transition-all",
+                                        isClickable && "cursor-pointer hover:scale-105",
+                                        !isClickable && "cursor-default"
+                                    )}
+                                >
                                     {/* Connector line (except for first) */}
                                     {index > 0 && (
                                         <div
@@ -55,10 +73,11 @@ function ProgressBar({ currentStage, totalStages, stageLabels = defaultLabels }:
                                     {/* Step circle */}
                                     <div
                                         className={cn(
-                                            "step-indicator",
+                                            "step-indicator transition-transform",
                                             isCompleted && "step-indicator-completed",
                                             isActive && "step-indicator-active animate-bounce-subtle",
-                                            isPending && "step-indicator-pending"
+                                            isPending && "step-indicator-pending",
+                                            isClickable && "hover:ring-2 hover:ring-telha/30"
                                         )}
                                     >
                                         {isCompleted ? (
@@ -74,12 +93,13 @@ function ProgressBar({ currentStage, totalStages, stageLabels = defaultLabels }:
                                             "text-xs font-medium transition-colors",
                                             isActive && "text-telha",
                                             isCompleted && "text-verde-claro",
-                                            isPending && "text-verde/50"
+                                            isPending && "text-verde/50",
+                                            isClickable && "hover:text-telha"
                                         )}
                                     >
                                         {label}
                                     </span>
-                                </div>
+                                </button>
                             )
                         })}
                     </div>
