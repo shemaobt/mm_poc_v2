@@ -538,11 +538,12 @@ function Stage5Discourse() {
                     <div className="space-y-4 py-4">
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Source Event</label>
-                            <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v })}>
+                            <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__clear__' ? '' : v })}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select event..." />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                     {[...events].sort((a, b) => {
                                         const getNum = (id: string) => {
                                             const match = id.match(/^e(\d+)$/);
@@ -563,11 +564,12 @@ function Stage5Discourse() {
 
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Relation Type</label>
-                            <Select value={formData.relationType} onValueChange={(v) => setFormData({ ...formData, relationType: v })}>
+                            <Select value={formData.relationType} onValueChange={(v) => setFormData({ ...formData, relationType: v === '__clear__' ? '' : v })}>
                                 <SelectTrigger>
-                                    <SelectValue />
+                                    <SelectValue placeholder="Select..." />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                     {DISCOURSE_RELATIONS.map(r => (
                                         <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
@@ -577,11 +579,12 @@ function Stage5Discourse() {
 
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Target Event</label>
-                            <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v })}>
+                            <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__clear__' ? '' : v })}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select event..." />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                     {[...events].sort((a, b) => {
                                         const getNum = (id: string) => {
                                             const match = id.match(/^e(\d+)$/);

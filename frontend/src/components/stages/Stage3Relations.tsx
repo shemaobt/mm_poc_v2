@@ -299,11 +299,12 @@ function Stage3Relations() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Source Participant</label>
-                                <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v })}>
+                                <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Source..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {[...participants].sort((a, b) => {
                                             const getNum = (id: string) => {
                                                 const match = id.match(/^p(\d+)$/);
@@ -322,11 +323,12 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Target Participant</label>
-                                <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v })}>
+                                <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Target..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {[...participants].sort((a, b) => {
                                             const getNum = (id: string) => {
                                                 const match = id.match(/^p(\d+)$/);
@@ -345,11 +347,12 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Category</label>
-                                <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                                <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {RELATION_CATEGORIES.map(c => (
                                             <SelectItem key={c} value={c}>{c}</SelectItem>
                                         ))}

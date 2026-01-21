@@ -409,11 +409,12 @@ function Stage2Participants() {
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Type</label>
-                                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+                                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {PARTICIPANT_TYPES.map(t => (
                                             <SelectItem key={t} value={t}>{t}</SelectItem>
                                         ))}
@@ -446,11 +447,12 @@ function Stage2Participants() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Quantity</label>
-                                <Select value={formData.quantity} onValueChange={(v) => setFormData({ ...formData, quantity: v })}>
+                                <Select value={formData.quantity} onValueChange={(v) => setFormData({ ...formData, quantity: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {QUANTITIES.map(q => (
                                             <SelectItem key={q} value={q}>{q}</SelectItem>
                                         ))}
@@ -459,11 +461,12 @@ function Stage2Participants() {
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Reference Status</label>
-                                <Select value={formData.referenceStatus} onValueChange={(v) => setFormData({ ...formData, referenceStatus: v })}>
+                                <Select value={formData.referenceStatus} onValueChange={(v) => setFormData({ ...formData, referenceStatus: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {REFERENCE_STATUS.map(r => (
                                             <SelectItem key={r} value={r}>{r}</SelectItem>
                                         ))}
