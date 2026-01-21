@@ -8,6 +8,7 @@ from typing import Optional
 from prisma import Json
 
 from app.core.database import get_db
+from app.core.auth_middleware import get_current_approved_user
 from app.services.bhsa_service import get_bhsa_service, parse_reference
 
 router = APIRouter()
@@ -45,7 +46,10 @@ async def get_passage(passage_id: str):
     return passage
 
 @router.post("")
-async def create_passage(passage: PassageCreate):
+async def create_passage(
+    passage: PassageCreate,
+    current_user: dict = Depends(get_current_approved_user)
+):
     """Create or update passage, ensuring clauses are populated"""
     db = get_db()
     bhsa = get_bhsa_service()
@@ -69,11 +73,12 @@ async def create_passage(passage: PassageCreate):
         # Better to fail if this is the primary way to init.
         raise HTTPException(status_code=400, detail=f"Failed to fetch BHSA data: {str(e)}")
 
-    # 3. Create Passage
+    # 3. Create Passage with owner
     new_passage = await db.passage.create(data={
         "reference": passage.reference,
         "sourceLang": passage.sourceLang,
-        "isComplete": False
+        "isComplete": False,
+        "userId": current_user.get("sub")  # Set owner from JWT
     })
     
     # 4. Create Clauses
@@ -122,8 +127,6 @@ async def create_passage(passage: PassageCreate):
         
     return new_passage
 
-
-from app.core.auth_middleware import get_current_user_optional, get_current_approved_user
 
 @router.delete("/{passage_id}")
 async def delete_passage(
