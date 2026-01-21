@@ -141,7 +141,7 @@ async def delete_passage(
     
     # Check authorization: must be owner or admin
     is_owner = passage.userId == current_user.get("sub")
-    is_admin = current_user.get("role") == "admin"
+    is_admin = "admin" in current_user.get("roles", [])
     
     if not is_owner and not is_admin:
         raise HTTPException(
