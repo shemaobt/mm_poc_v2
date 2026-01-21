@@ -302,7 +302,21 @@ function Stage2Participants() {
 
             {/* Participants grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {participants.map((p, index) => (
+                {[...participants].sort((a, b) => {
+                    // Sort by numeric part of ID (p1, p2, ... p10)
+                    const getNum = (id: string) => {
+                        const match = id.match(/^p(\d+)$/);
+                        return match ? parseInt(match[1]) : Infinity;
+                    };
+                    const numA = getNum(a.participantId);
+                    const numB = getNum(b.participantId);
+
+                    if (numA !== Infinity && numB !== Infinity) {
+                        return numA - numB;
+                    }
+                    // Fallback to string comparison for non-standard IDs
+                    return a.participantId.localeCompare(b.participantId, undefined, { numeric: true });
+                }).map((p, index) => (
                     <Card
                         key={p.id || `temp-${p.participantId}-${index}`}
                         className={`group transition-all ${isValidated(p.id) ? 'border-verde-claro/50 bg-verde-claro/5' : 'hover:border-telha/30'}`}
