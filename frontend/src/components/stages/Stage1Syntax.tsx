@@ -46,7 +46,6 @@ function Stage1Syntax() {
     const [showAIModal, setShowAIModal] = useState(false)
     const [existingPassages, setExistingPassages] = useState<ExistingPassage[]>([])
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
-    const [translating, setTranslating] = useState(false)
     const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
     const { isAdmin, user } = useAuth()
     
@@ -382,8 +381,8 @@ function Stage1Syntax() {
             setLoadingMessage('Fetching passage preview from BHSA...')
             setError(null)
             
-            // Fetch the passage data for preview only (using clean reference)
-            const data = await bhsaAPI.fetchPassage(cleanReference)
+            // Fetch the passage data for preview only (skip translation)
+            const data = await bhsaAPI.fetchPassage(cleanReference, true)
 
             if (data.clauses && data.clauses.length > 0) {
                 const mainlineCount = data.clauses.filter((c: any) => c.is_mainline).length
@@ -494,68 +493,8 @@ function Stage1Syntax() {
         setSearchTerm('')
     }
 
-    // Auto-translate Logic
-    useEffect(() => {
-        if (!passageData || !passageData.clauses) return
-
-        // Check if we need translations (if any clause is missing freeTranslation)
-        const needsTranslation = passageData.clauses.some((c: any) => !c.freeTranslation)
-
-        if (needsTranslation && !translating) {
-            autoTranslate()
-        }
-    }, [passageData?.id]) // Run when passage ID changes (new passage loaded)
-
-    const autoTranslate = async () => {
-        if (!passageData?.reference) return
-
-        try {
-            setTranslating(true)
-            // Use a default key or the one from env if feasible, but backend handles it mostly.
-            // Actually api.ts translateClauses requires apiKey.
-            // The AIProcessingModal uses bhsaAPI.aiPrefill which takes apiKey.
-            // Ideally backend should handle key if not provided, but let's see.
-            // The backend endpoint checks os.getenv("ANTHROPIC_API_KEY").
-            // The frontend API method currently expects apiKey as 2nd arg.
-            // WORKAROUND: Pass empty string if backend is configured to use env var
-            // Wait, looking at api.ts: translateClauses: async (reference: string, apiKey: string)
-            // In backend ai.py: api_key = os.getenv("ANTHROPIC_API_KEY") if not passed?
-            // ai.py POST /translate_clauses:
-            // api_key = os.getenv("ANTHROPIC_API_KEY") 
-            // It ONLY looks at env var! It relies on backend env.
-            // The request model has 'api_key' optional but the code doesn't use it from request?
-            // Actually, my edit to ai.py:
-            // api_key = os.getenv("ANTHROPIC_API_KEY") (lines added)
-            // It ignores the request body api_key. So passing empty string is fine.
-
-            const result = await bhsaAPI.translateClauses(passageData.reference, "")
-
-            // Update local state with new translations
-            if (result.translations) {
-                setPassageData({
-                    ...passageData,
-                    clauses: passageData.clauses.map((c: any) => {
-                        // Match by clauseIndex (assuming result keys are 1-based indices)
-                        // This logic must match the backend logic or use ID if available.
-                        // Backend loops and updates DB.
-                        // Ideally we should reload the passage to get the definitive state
-                        // OR update locally accurately.
-                        // The backend returns { "1": "trans", "2": "trans" ... }
-                        // where keys are strings of (clauseIndex + 1).
-                        const key = (c.clauseIndex !== undefined ? c.clauseIndex + 1 : c.clause_id).toString()
-                        if (result.translations[key]) {
-                            return { ...c, freeTranslation: result.translations[key] }
-                        }
-                        return c
-                    })
-                })
-            }
-        } catch (err) {
-            console.error("Auto-translation failed:", err)
-        } finally {
-            setTranslating(false)
-        }
-    }
+    // Note: Auto-translation is handled by the backend during passage fetch
+    // No need for frontend auto-translate - it causes duplicate API calls
 
     const toggleClauseCheck = (clauseId: string) => {
         const newSet = new Set(checkedClauses)
@@ -953,12 +892,6 @@ function Stage1Syntax() {
                                                 <p className="text-telha text-sm mb-2 italic border-l-2 border-telha/20 pl-2">
                                                     "{clause.freeTranslation}"
                                                 </p>
-                                            )}
-                                            {!clause.freeTranslation && translating && (
-                                                <div className="flex items-center gap-2 text-xs text-verde/50 mb-2 italic">
-                                                    <Sparkles className="w-3 h-3 animate-pulse" />
-                                                    Translating...
-                                                </div>
                                             )}
                                             <p className="text-verde text-xs">
                                                 <strong>Verb:</strong> {clause.lemma_ascii || clause.lemma} ({clause.binyan || 'qal'}) - {clause.tense || 'perf'}

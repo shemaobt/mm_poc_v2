@@ -206,9 +206,9 @@ export const bhsaAPI = {
         return response.data
     },
 
-    fetchPassage: async (reference: string) => {
+    fetchPassage: async (reference: string, skipTranslate: boolean = false) => {
         const response = await apiClient.get('/api/bhsa/passage', {
-            params: { ref: reference },
+            params: { ref: reference, skip_translate: skipTranslate },
         })
         return response.data
     },

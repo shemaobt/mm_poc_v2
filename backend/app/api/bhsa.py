@@ -120,13 +120,14 @@ async def upload_bhsa_data(
 
 
 @router.get("/passage")
-async def fetch_passage(ref: str, db = Depends(get_db)):
+async def fetch_passage(ref: str, skip_translate: bool = False, db = Depends(get_db)):
     """
     Fetch passage data from BHSA and sync with DB for translations.
-    Triggers AI translation if not present in DB.
+    Triggers AI translation if not present in DB (unless skip_translate=true).
     
     Args:
         ref: Biblical reference, e.g., "Ruth 1:1-6"
+        skip_translate: If true, skip auto-translation (useful for preview)
     """
     bhsa_service = get_bhsa_service()
     
@@ -189,11 +190,19 @@ async def fetch_passage(ref: str, db = Depends(get_db)):
         # Map existing translations: clauseIndex -> translation
         db_translations = {c.clauseIndex: c.freeTranslation for c in passage.clauses if c.freeTranslation}
         
-        missing_count = len(passage_data["clauses"]) - len(db_translations)
+        tf_clause_count = len(passage_data["clauses"])
+        db_clause_count = len(passage.clauses)
+        translated_count = len(db_translations)
+        
+        # Only translate if we have DB clauses that are missing translations
+        # (not based on TF count which may differ)
+        clauses_needing_translation = [c for c in passage.clauses if not c.freeTranslation]
+        missing_count = len(clauses_needing_translation)
         
         # If we have missing translations, generate them automatically (One-time cost)
-        if missing_count > 0:
-            print(f"[Auto-Translate] {missing_count} clauses missing translations. Generating...")
+        # Skip if skip_translate=true (preview mode)
+        if missing_count > 0 and not skip_translate:
+            print(f"[Auto-Translate] {passage_data['reference']}: {missing_count}/{db_clause_count} clauses missing translations. Generating...")
             api_key = os.getenv("ANTHROPIC_API_KEY")
             
             if api_key:
