@@ -19,7 +19,7 @@ interface ExistingPassage {
 
 /**
  * Check if a pericope reference contains partial verse indicators (a, b, c, etc.)
- * These are not supported by BHSA data.
+ * BHSA data uses full verses, so these will be expanded to full verses.
  * Examples: "Ruth 1:19b-2:2", "Ruth 1:8-19a", "Genesis 1:1a"
  */
 const hasPartialVerseIndicator = (reference: string): boolean => {
@@ -27,6 +27,16 @@ const hasPartialVerseIndicator = (reference: string): boolean => {
     // Matches: :19a, :19b, :1a, :22c, etc. (also at end of string)
     const partialVersePattern = /:\d+[a-z]/i
     return partialVersePattern.test(reference)
+}
+
+/**
+ * Strip partial verse indicators from a reference to get full verses.
+ * E.g., "Ruth 1:8-19a" -> "Ruth 1:8-19"
+ * E.g., "Ruth 1:19b-2:2" -> "Ruth 1:19-2:2"
+ */
+const stripPartialVerseIndicators = (reference: string): string => {
+    // Remove letter suffixes after verse numbers (e.g., :19a -> :19, :2b -> :2)
+    return reference.replace(/:(\d+)[a-z]/gi, ':$1')
 }
 
 function Stage1Syntax() {
@@ -231,20 +241,21 @@ function Stage1Syntax() {
     }
 
     const handleSelectPericope = (pericope: Pericope) => {
-        // Check if has partial verse indicators (not supported by BHSA)
-        if (hasPartialVerseIndicator(pericope.reference)) {
-            toast.error('Partial Verses Not Supported', {
-                description: 'BHSA data does not support partial verse references (like 19a, 19b). Please choose a pericope with complete verses.'
-            })
-            return
-        }
-        
         // Check if locked by another user
         if (pericope.lock && pericope.lock.userId !== user?.id) {
             toast.error('Pericope Locked', {
                 description: `This pericope is being analyzed by ${pericope.lock.userName}`
             })
             return
+        }
+        
+        // Check if has partial verse indicators - warn but allow
+        if (hasPartialVerseIndicator(pericope.reference)) {
+            const cleanRef = stripPartialVerseIndicators(pericope.reference)
+            toast.warning('Partial Verse Reference', {
+                description: `This pericope uses partial verses. BHSA will load full verses: "${cleanRef}"`,
+                duration: 5000
+            })
         }
         
         setSelectedPericope(pericope)
@@ -343,12 +354,15 @@ function Stage1Syntax() {
     const handleFetchPassage = async () => {
         if (!reference.trim()) return
         
-        // Check for partial verse indicators before fetching
-        if (hasPartialVerseIndicator(reference)) {
-            toast.error('Partial Verses Not Supported', {
-                description: 'BHSA data does not support partial verse references (like 19a, 19b). Please choose a pericope with complete verses.'
+        // Strip partial verse indicators if present (e.g., "Ruth 1:8-19a" -> "Ruth 1:8-19")
+        const cleanReference = stripPartialVerseIndicators(reference)
+        const hadPartialVerse = cleanReference !== reference
+        
+        if (hadPartialVerse) {
+            toast.warning('Using Full Verses', {
+                description: `Partial verse reference adjusted to: "${cleanReference}"`,
+                duration: 4000
             })
-            return
         }
 
         try {
@@ -359,8 +373,8 @@ function Stage1Syntax() {
             setLoadingMessage('Fetching passage preview from BHSA...')
             setError(null)
             
-            // Fetch the passage data for preview only
-            const data = await bhsaAPI.fetchPassage(reference)
+            // Fetch the passage data for preview only (using clean reference)
+            const data = await bhsaAPI.fetchPassage(cleanReference)
 
             if (data.clauses && data.clauses.length > 0) {
                 const mainlineCount = data.clauses.filter((c: any) => c.is_mainline).length
@@ -395,15 +409,18 @@ function Stage1Syntax() {
     // Start analysis - lock the pericope and show full data
     const handleStartAnalysis = async () => {
         if (!reference.trim() || !previewData) return
+        
+        // Use the clean reference (without partial verse indicators)
+        const cleanReference = stripPartialVerseIndicators(reference)
 
         try {
             // Release any existing lock first
-            if (currentLock && currentLock !== reference) {
+            if (currentLock && currentLock !== cleanReference) {
                 await releaseLock(currentLock)
             }
             
-            // Try to acquire lock for this pericope
-            const lockAcquired = await acquireLock(reference)
+            // Try to acquire lock for this pericope (use clean reference)
+            const lockAcquired = await acquireLock(cleanReference)
             if (!lockAcquired) {
                 return // Lock failed, user was notified
             }
@@ -413,7 +430,7 @@ function Stage1Syntax() {
             setError(null)
             
             // Fetch full passage data now that we have the lock
-            const data = await bhsaAPI.fetchPassage(reference)
+            const data = await bhsaAPI.fetchPassage(cleanReference)
 
             if (data.id || data.passage_id) {
                 setPassageData({
@@ -644,7 +661,7 @@ function Stage1Syntax() {
                                         const isLockedByOther = !!(pericope.lock && pericope.lock.userId !== user?.id)
                                         const isLockedByMe = !!(pericope.lock && pericope.lock.userId === user?.id)
                                         const hasPartialVerse = hasPartialVerseIndicator(pericope.reference)
-                                        const isDisabled = isLockedByOther || hasPartialVerse
+                                        const isDisabled = isLockedByOther // Only locked items are disabled, not partial verses
                                         
                                         return (
                                             <button
@@ -659,17 +676,17 @@ function Stage1Syntax() {
                                                             : 'text-preto hover:bg-areia/30'
                                                     }
                                                     ${isLockedByMe ? 'bg-verde-claro/10 border-l-2 border-verde-claro' : ''}
-                                                    ${hasPartialVerse ? 'border-l-2 border-red-300' : ''}
+                                                    ${hasPartialVerse && !isDisabled ? 'border-l-2 border-amber-400' : ''}
                                                 `}
                                             >
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className={`font-medium ${hasPartialVerse ? 'line-through opacity-60' : ''}`}>
+                                                    <span className="font-medium">
                                                         {pericope.reference}
                                                     </span>
                                                     {hasPartialVerse && (
-                                                        <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                                                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
                                                             <AlertTriangle className="w-3 h-3" />
-                                                            Partial verse
+                                                            Full verses
                                                         </span>
                                                     )}
                                                     {isLockedByOther && (
