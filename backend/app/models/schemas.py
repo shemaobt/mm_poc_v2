@@ -54,7 +54,7 @@ class ParticipantBase(BaseModel):
     participantId: str
     hebrew: str
     gloss: str
-    type: str
+    type: Optional[str] = None
     quantity: Optional[str] = None
     referenceStatus: Optional[str] = None
     properties: Optional[List[PropertyDimension]] = None
@@ -80,10 +80,10 @@ class ParticipantResponse(ParticipantBase):
 
 class RelationBase(BaseModel):
     """Base relation model"""
-    category: str
-    type: str
-    sourceId: str
-    targetId: str
+    category: Optional[str] = None
+    type: Optional[str] = None
+    sourceId: Optional[str] = None
+    targetId: Optional[str] = None
 
 class RelationCreate(RelationBase):
     """Create relation"""
@@ -93,6 +93,8 @@ class RelationResponse(RelationBase):
     """Relation response"""
     id: str
     passageId: str
+    source: Optional[ParticipantResponse] = None
+    target: Optional[ParticipantResponse] = None
 
     class Config:
         from_attributes = True
@@ -228,15 +230,36 @@ class EventResponse(EventBase):
         from_attributes = True
 
 
+class EventPatch(BaseModel):
+    """Partial event update - all fields optional for delta updates"""
+    eventId: Optional[str] = None
+    clauseId: Optional[str] = None
+    category: Optional[str] = None
+    eventCore: Optional[str] = None
+    discourseFunction: Optional[str] = None
+    chainPosition: Optional[str] = None
+    narrativeFunction: Optional[str] = None
+    roles: Optional[List[EventRoleBase]] = None
+    modifiers: Optional[EventModifierBase] = None
+    speechAct: Optional[SpeechActBase] = None
+    pragmatic: Optional[EventPragmaticBase] = None
+    emotions: Optional[List[EventEmotionBase]] = None
+    narratorStance: Optional[NarratorStanceBase] = None
+    audienceResponse: Optional[AudienceResponseBase] = None
+    laRetrieval: Optional[LARetrievalBase] = None
+    figurative: Optional[FigurativeBase] = None
+    keyTerms: Optional[List[KeyTermBase]] = None
+
+
 # ============================================================
 # DISCOURSE MODELS
 # ============================================================
 
 class DiscourseRelationBase(BaseModel):
     """Base discourse relation"""
-    relationType: str
-    sourceId: str
-    targetId: str
+    relationType: Optional[str] = None
+    sourceId: Optional[str] = None
+    targetId: Optional[str] = None
 
 class DiscourseRelationCreate(DiscourseRelationBase):
     """Create discourse relation"""

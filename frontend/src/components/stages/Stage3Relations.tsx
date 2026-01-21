@@ -8,7 +8,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
-import { GitBranch, ArrowRight, Plus, Trash2, Loader2, Check, CheckCircle2 } from 'lucide-react'
+import { GitBranch, ArrowRight, Plus, Trash2, Loader2, Check, CheckCircle2, Pencil } from 'lucide-react'
 
 const RELATION_CATEGORIES = ['kinship', 'social', 'possession', 'part_whole', 'origin', 'spatial', 'temporal', 'logical', 'comparison']
 
@@ -35,6 +35,7 @@ function Stage3Relations() {
     const isValidated = (id: string) => validated.relations.has(id)
     const validatedCount = relations.filter(r => validated.relations.has(r.id)).length
     const allValidated = relations.length > 0 && relations.every(r => validated.relations.has(r.id))
+    const [editingId, setEditingId] = useState<string | null>(null)
     const [formData, setFormData] = useState<RelationCreate>({
         category: 'kinship',
         type: '',
@@ -43,8 +44,8 @@ function Stage3Relations() {
     })
 
     useEffect(() => {
-        // Only fetch from DB if no relations in store (avoid overwriting AI-generated data)
-        if (passageData?.id && relations.length === 0) {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
+        if (passageData?.id) {
             fetchRelations(passageData.id)
         }
     }, [passageData?.id])
@@ -62,29 +63,61 @@ function Stage3Relations() {
         }
     }
 
+    const resetForm = () => {
+        setFormData({
+            category: 'kinship',
+            type: '',
+            sourceId: '',
+            targetId: ''
+        })
+        setEditingId(null)
+    }
+
+    const handleEdit = (rel: any) => {
+        setFormData({
+            category: rel.category,
+            type: rel.type,
+            sourceId: rel.sourceId,
+            targetId: rel.targetId
+        })
+        setEditingId(rel.id)
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!passageData?.id) return
 
         try {
             setLoading(true)
-            const created = await bhsaAPI.createRelation(passageData.id, formData)
-            setRelations([...relations, created])
+            if (editingId) {
+                const updated = await bhsaAPI.updateRelation(editingId, formData)
+                setRelations(relations.map(r => r.id === editingId ? updated : r))
 
-            // Track creation
-            if (aiSnapshot) {
-                trackEdit('create', 'relation', created.id, undefined, undefined, undefined, false)
+                // Track update
+                if (aiSnapshot) {
+                    const original = relations.find(r => r.id === editingId)
+                    const fields = ['category', 'type', 'sourceId', 'targetId'] as const
+                    fields.forEach(field => {
+                        if (original && original[field] !== formData[field]) {
+                            const wasAiGenerated = aiSnapshot.relations?.some((r: any) => r.type === original.type)
+                            trackEdit('update', 'relation', editingId, field, original[field], formData[field], wasAiGenerated)
+                        }
+                    })
+                }
+            } else {
+                const created = await bhsaAPI.createRelation(passageData.id, formData)
+                setRelations([...relations, created])
+
+                // Track creation
+                if (aiSnapshot) {
+                    trackEdit('create', 'relation', created.id, undefined, undefined, undefined, false)
+                }
             }
 
-            setFormData({
-                category: 'kinship',
-                type: '',
-                sourceId: '',
-                targetId: ''
-            })
+            resetForm()
         } catch (err: any) {
-            console.error('Error creating relation:', err)
-            setError(err.response?.data?.detail || 'Failed to create relation')
+            console.error('Error saving relation:', err)
+            setError(err.response?.data?.detail || 'Failed to save relation')
         } finally {
             setLoading(false)
         }
@@ -229,14 +262,23 @@ function Stage3Relations() {
                                                     {getParticipantDisplay(r.targetId, r.target)}
                                                 </div>
                                             </div>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-600"
-                                                onClick={() => r.id && handleDelete(r.id)}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
+                                            <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleEdit(r)}
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-red-500 hover:text-red-600"
+                                                    onClick={() => r.id && handleDelete(r.id)}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -257,12 +299,22 @@ function Stage3Relations() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Source Participant</label>
-                                <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v })}>
+                                <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Source..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {participants.map((p, idx) => (
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                        {[...participants].sort((a, b) => {
+                                            const getNum = (id: string) => {
+                                                const match = id.match(/^p(\d+)$/);
+                                                return match ? parseInt(match[1]) : Infinity;
+                                            };
+                                            const numA = getNum(a.participantId);
+                                            const numB = getNum(b.participantId);
+                                            if (numA !== Infinity && numB !== Infinity) return numA - numB;
+                                            return a.participantId.localeCompare(b.participantId, undefined, { numeric: true });
+                                        }).map((p, idx) => (
                                             <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.id || p.participantId}>{p.participantId}: {p.gloss}</SelectItem>
                                         ))}
                                     </SelectContent>
@@ -271,12 +323,22 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Target Participant</label>
-                                <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v })}>
+                                <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Target..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {participants.map((p, idx) => (
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                        {[...participants].sort((a, b) => {
+                                            const getNum = (id: string) => {
+                                                const match = id.match(/^p(\d+)$/);
+                                                return match ? parseInt(match[1]) : Infinity;
+                                            };
+                                            const numA = getNum(a.participantId);
+                                            const numB = getNum(b.participantId);
+                                            if (numA !== Infinity && numB !== Infinity) return numA - numB;
+                                            return a.participantId.localeCompare(b.participantId, undefined, { numeric: true });
+                                        }).map((p, idx) => (
                                             <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.id || p.participantId}>{p.participantId}: {p.gloss}</SelectItem>
                                         ))}
                                     </SelectContent>
@@ -285,11 +347,12 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Category</label>
-                                <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                                <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {RELATION_CATEGORIES.map(c => (
                                             <SelectItem key={c} value={c}>{c}</SelectItem>
                                         ))}
@@ -306,10 +369,17 @@ function Stage3Relations() {
                                 />
                             </div>
 
-                            <Button type="submit" className="w-full" disabled={loading}>
-                                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                                Add Relation
-                            </Button>
+                            <div className="flex gap-2">
+                                {editingId && (
+                                    <Button type="button" variant="outline" className="flex-1" onClick={resetForm}>
+                                        Cancel
+                                    </Button>
+                                )}
+                                <Button type="submit" className="flex-1" disabled={loading}>
+                                    {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                                    {editingId ? 'Update Relation' : 'Add Relation'}
+                                </Button>
+                            </div>
                         </form>
                     </CardContent>
                 </Card>

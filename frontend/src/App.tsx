@@ -180,14 +180,32 @@ function MainApp() {
 
     const goToNext = () => {
         if (currentStage < 5) {
+            // Show warning but don't block navigation
             if (!isStageValidated(currentStage)) {
-                toast.error('Validation Required', {
+                toast.warning('Incomplete Validation', {
                     description: getValidationMessage(currentStage)
                 })
-                return
             }
             setCurrentStage(currentStage + 1)
         }
+    }
+
+    // Handle click navigation from ProgressBar
+    const handleStageClick = (stage: number) => {
+        // Stage 1 must have passage data to navigate away
+        if (currentStage === 1 && !passageData?.id && stage > 1) {
+            toast.error('Please load a passage first')
+            return
+        }
+        
+        // Show warning if leaving incomplete stage but allow navigation
+        if (!isStageValidated(currentStage) && stage !== currentStage) {
+            toast.warning('Incomplete Validation', {
+                description: getValidationMessage(currentStage)
+            })
+        }
+        
+        setCurrentStage(stage)
     }
 
     const canProceed = isStageValidated(currentStage)
@@ -237,7 +255,7 @@ function MainApp() {
                 <Sidebar currentView={currentView} onViewChange={setCurrentView} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
                 <Header />
                 <ContentWrapper>
-                    <ProgressBar currentStage={currentStage} totalStages={5} />
+                    <ProgressBar currentStage={currentStage} totalStages={5} onStageClick={handleStageClick} />
 
                     {/* My Maps button */}
                     <div className="max-w-6xl mx-auto px-6 pt-4">

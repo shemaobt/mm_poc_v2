@@ -33,6 +33,7 @@ interface PassageStore {
     aiSnapshot: AiSnapshotData | null
     snapshotId: string | null
     validated: ValidationState
+    checkedClauses: Set<string>  // Stage 1 clause read-check state
 
     // Actions
     setPassageData: (data: PassageData) => void
@@ -44,6 +45,7 @@ interface PassageStore {
     setError: (error: string | null) => void
     setBhsaLoaded: (loaded: boolean) => void
     clearPassage: () => void
+    discardSession: () => void  // Clears local state and localStorage (keeps DB data)
     setAiSnapshot: (data: AiSnapshotData, snapshotId: string) => void
     trackEdit: (action: string, entityType: string, entityId: string, fieldName?: string, oldValue?: unknown, newValue?: unknown, isAiGenerated?: boolean) => Promise<void>
     
@@ -53,6 +55,14 @@ interface PassageStore {
     isStageFullyValidated: (stage: keyof ValidationState, ids: string[]) => boolean
     getValidationCount: (stage: keyof ValidationState) => number
     clearValidation: () => void
+    
+    // Clause check actions (Stage 1)
+    setCheckedClauses: (clauses: Set<string>) => void
+    toggleClauseCheck: (clauseId: string) => void
+    
+    // Data fetching actions
+    fetchEvents: (passageId: string) => Promise<void>
+    fetchDiscourse: (passageId: string) => Promise<void>
 }
 
 import { persist } from 'zustand/middleware'
@@ -77,6 +87,7 @@ export const usePassageStore = create<PassageStore>()(
                 events: new Set<string>(),
                 discourse: new Set<string>(),
             },
+            checkedClauses: new Set<string>(),
 
             // Actions
             setPassageData: (data) => set({ passageData: data, error: null }),
@@ -101,8 +112,34 @@ export const usePassageStore = create<PassageStore>()(
                     relations: new Set<string>(),
                     events: new Set<string>(),
                     discourse: new Set<string>(),
-                }
+                },
+                checkedClauses: new Set<string>()
             }),
+            
+            // Discard session: clears local state AND localStorage (keeps DB data intact)
+            discardSession: () => {
+                // Clear localStorage for this store
+                localStorage.removeItem('passage-storage')
+                
+                // Reset state
+                set({
+                    passageData: null,
+                    participants: [],
+                    relations: [],
+                    events: [],
+                    discourse: [],
+                    error: null,
+                    aiSnapshot: null,
+                    snapshotId: null,
+                    validated: {
+                        participants: new Set<string>(),
+                        relations: new Set<string>(),
+                        events: new Set<string>(),
+                        discourse: new Set<string>(),
+                    },
+                    checkedClauses: new Set<string>()
+                })
+            },
 
             // AI Tracking
             setAiSnapshot: (data: any, snapshotId: string) => set({ aiSnapshot: data, snapshotId }),
@@ -161,7 +198,41 @@ export const usePassageStore = create<PassageStore>()(
                     events: new Set<string>(),
                     discourse: new Set<string>(),
                 }
-            })
+            }),
+            
+            // Clause check actions (Stage 1)
+            setCheckedClauses: (clauses) => set({ checkedClauses: clauses }),
+            toggleClauseCheck: (clauseId) => {
+                const { checkedClauses } = get()
+                const newSet = new Set(checkedClauses)
+                if (newSet.has(clauseId)) {
+                    newSet.delete(clauseId)
+                } else {
+                    newSet.add(clauseId)
+                }
+                set({ checkedClauses: newSet })
+            },
+            
+            // Data fetching
+            fetchEvents: async (passageId: string) => {
+                try {
+                    const { bhsaAPI } = await import('../services/api')
+                    const events = await bhsaAPI.getEvents(passageId)
+                    set({ events })
+                } catch (err) {
+                    console.error('Failed to fetch events:', err)
+                }
+            },
+            
+            fetchDiscourse: async (passageId: string) => {
+                try {
+                    const { bhsaAPI } = await import('../services/api')
+                    const discourse = await bhsaAPI.getDiscourse(passageId)
+                    set({ discourse })
+                } catch (err) {
+                    console.error('Failed to fetch discourse:', err)
+                }
+            }
         }),
         {
             name: 'passage-storage',
@@ -180,7 +251,8 @@ export const usePassageStore = create<PassageStore>()(
                     relations: Array.from(state.validated.relations),
                     events: Array.from(state.validated.events),
                     discourse: Array.from(state.validated.discourse),
-                }
+                },
+                checkedClauses: Array.from(state.checkedClauses)
             }),
             // Restore Sets from arrays
             merge: (persisted: any, current) => ({
@@ -191,7 +263,8 @@ export const usePassageStore = create<PassageStore>()(
                     relations: new Set(persisted?.validated?.relations || []),
                     events: new Set(persisted?.validated?.events || []),
                     discourse: new Set(persisted?.validated?.discourse || []),
-                }
+                },
+                checkedClauses: new Set(persisted?.checkedClauses || [])
             })
         }
     )

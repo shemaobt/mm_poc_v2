@@ -17,9 +17,24 @@ def build_discourse_create_data(data: DiscourseRelationCreate, passage_id: str) 
     """
     return {
         "passageId": passage_id,
-        "relationType": data.relationType,
+        "type": data.relationType,  # Map relationType (API) -> type (DB)
         "sourceId": data.sourceId,
         "targetId": data.targetId
+    }
+
+def map_to_response(relation) -> Dict:
+    """Map DB relation to API response"""
+    if not relation:
+        return None
+        
+    return {
+        "id": relation.id,
+        "passageId": relation.passageId,
+        "relationType": relation.type,  # Map type (DB) -> relationType (API)
+        "sourceId": relation.sourceId,
+        "targetId": relation.targetId,
+        "source": relation.source,
+        "target": relation.target
     }
 
 # ============================================================
@@ -34,12 +49,11 @@ class DiscourseService:
         relations = await db.discourserelation.find_many(
             where={"passageId": passage_id},
             include={
-                "source": True,
-                "target": True
+                "source": {"include": {"roles": True}},
+                "target": {"include": {"roles": True}}
             },
-            # Ordering by logic could be added here if needed
         )
-        return relations
+        return [map_to_response(r) for r in relations]
 
     @staticmethod
     async def create(passage_id: str, data: DiscourseRelationCreate) -> Dict:
@@ -49,11 +63,29 @@ class DiscourseService:
         relation = await db.discourserelation.create(
             data=create_data,
             include={
-                "source": True,
-                "target": True
+                "source": {"include": {"roles": True}},
+                "target": {"include": {"roles": True}}
             }
         )
-        return relation
+        return map_to_response(relation)
+
+    @staticmethod
+    async def update(id: str, data: DiscourseRelationCreate) -> Dict:
+        """Update a discourse relation"""
+        
+        relation = await db.discourserelation.update(
+            where={"id": id},
+            data={
+                "type": data.relationType,  # Map relationType -> type
+                "sourceId": data.sourceId,
+                "targetId": data.targetId
+            },
+            include={
+                "source": {"include": {"roles": True}},
+                "target": {"include": {"roles": True}}
+            }
+        )
+        return map_to_response(relation)
 
     @staticmethod
     async def delete(id: str) -> Dict:

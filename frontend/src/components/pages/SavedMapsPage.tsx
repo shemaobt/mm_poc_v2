@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { mapsAPI, passagesAPI } from '../../services/api'
-import { BookOpen, Download, Calendar, ArrowLeft, FileJson, Trash2, AlertTriangle } from 'lucide-react'
+import { useAuth } from '../../contexts/AuthContext'
+import { BookOpen, Download, Calendar, ArrowLeft, FileJson, Trash2, AlertTriangle, User } from 'lucide-react'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -27,6 +28,8 @@ interface SavedMap {
     thematicSpine: string | null
     participantCount: number
     eventCount: number
+    userId: string | null
+    ownerName: string | null
 }
 
 interface SavedMapsPageProps {
@@ -34,12 +37,19 @@ interface SavedMapsPageProps {
 }
 
 export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
+    const { user, isAdmin } = useAuth()
     const [maps, setMaps] = useState<SavedMap[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [exporting, setExporting] = useState<string | null>(null)
     const [deleting, setDeleting] = useState<string | null>(null)
     const [mapToDelete, setMapToDelete] = useState<SavedMap | null>(null)
+
+    // Check if current user can delete a specific map
+    const canDelete = (map: SavedMap): boolean => {
+        if (isAdmin) return true  // Admins can delete any map
+        return map.userId === user?.id  // Users can only delete their own maps
+    }
 
     useEffect(() => {
         loadMaps()
@@ -184,10 +194,17 @@ export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
                                     <span>{map.eventCount} events</span>
                                 </div>
 
-                                <div className="flex items-center text-xs text-verde/70 mb-4">
+                                <div className="flex items-center text-xs text-verde/70 mb-2">
                                     <Calendar className="w-3 h-3 mr-1" />
                                     {formatDate(map.completedAt || map.createdAt)}
                                 </div>
+
+                                {map.ownerName && (
+                                    <div className="flex items-center text-xs text-verde/70 mb-4">
+                                        <User className="w-3 h-3 mr-1" />
+                                        By: <span className="font-medium ml-1">{map.ownerName}</span>
+                                    </div>
+                                )}
 
                                 {map.peakEvent && (
                                     <div className="text-xs text-verde/70 mb-4">
@@ -209,15 +226,17 @@ export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
                                         )}
                                         Export Tripod JSON
                                     </Button>
-                                    <Button
-                                        onClick={() => setMapToDelete(map)}
-                                        variant="ghost"
-                                        size="icon"
-                                        className="text-verde/50 hover:text-red-600 hover:bg-red-50"
-                                        title="Delete map"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    {canDelete(map) && (
+                                        <Button
+                                            onClick={() => setMapToDelete(map)}
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-verde/50 hover:text-red-600 hover:bg-red-50"
+                                            title={isAdmin && map.userId !== user?.id ? "Delete (Admin)" : "Delete your map"}
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>

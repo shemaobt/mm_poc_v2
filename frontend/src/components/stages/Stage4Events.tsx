@@ -150,22 +150,27 @@ function SelectField({
     value,
     options,
     onChange,
-    placeholder = "Select..."
+    placeholder = "Select...",
+    clearable = true
 }: {
     label: string
     value?: string
     options: { value: string; label: string }[]
     onChange: (value: string) => void
     placeholder?: string
+    clearable?: boolean
 }) {
     return (
         <div>
             <label className="text-sm font-medium text-preto mb-1.5 block">{label}</label>
-            <Select value={value || ''} onValueChange={onChange}>
+            <Select value={value || ''} onValueChange={(v) => onChange(v === '__clear__' ? '' : v)}>
                 <SelectTrigger>
                     <SelectValue placeholder={placeholder} />
                 </SelectTrigger>
                 <SelectContent>
+                    {clearable && (
+                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                    )}
                     {options.map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
@@ -174,6 +179,7 @@ function SelectField({
         </div>
     )
 }
+
 
 function Stage4Events() {
     const {
@@ -218,13 +224,13 @@ function Stage4Events() {
         figurative: {},
         keyTerms: []
     })
+    // Track original data to compute delta for partial updates
+    const [originalData, setOriginalData] = useState<EventCreate | null>(null)
 
     useEffect(() => {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
         if (passageData?.id) {
-            // Fetch DB clauses to get UUID mappings
             fetchDbClauses(passageData.id)
-            // Always fetch events from DB to ensure we have complete data with all sub-models
-            // The store might have stale data from AI analysis that doesn't include modifiers/pragmatic
             fetchEvents(passageData.id)
         }
     }, [passageData?.id])
@@ -278,7 +284,7 @@ function Stage4Events() {
     }
 
     const handleEdit = (ev: EventResponse) => {
-        setFormData({
+        const eventData = {
             eventId: ev.eventId,
             clauseId: ev.clauseId,
             category: ev.category,
@@ -296,32 +302,81 @@ function Stage4Events() {
             laRetrieval: ev.laRetrieval || {},
             figurative: ev.figurative || {},
             keyTerms: ev.keyTerms || []
-        })
+        }
+        setFormData(eventData)
+        // Store original data for delta comparison
+        setOriginalData(JSON.parse(JSON.stringify(eventData)))
         setEditingId(ev.id)
         setShowModal(true)
     }
 
+    // Compute delta between original and current form data
+    const computeDelta = (original: EventCreate | null, current: EventCreate): Partial<EventCreate> => {
+        if (!original) return current
+
+        const delta: Partial<EventCreate> = {}
+
+        // Check scalar fields
+        if (current.category !== original.category) delta.category = current.category
+        if (current.eventCore !== original.eventCore) delta.eventCore = current.eventCore
+        if (current.discourseFunction !== original.discourseFunction) delta.discourseFunction = current.discourseFunction
+        if (current.chainPosition !== original.chainPosition) delta.chainPosition = current.chainPosition
+        if (current.narrativeFunction !== original.narrativeFunction) delta.narrativeFunction = current.narrativeFunction
+        // Note: clauseId is intentionally excluded from delta - changing clause requires full update
+
+        // Check complex objects (using JSON comparison for simplicity)
+        if (JSON.stringify(current.roles) !== JSON.stringify(original.roles)) delta.roles = current.roles
+        if (JSON.stringify(current.modifiers) !== JSON.stringify(original.modifiers)) delta.modifiers = current.modifiers
+        if (JSON.stringify(current.speechAct) !== JSON.stringify(original.speechAct)) delta.speechAct = current.speechAct
+        if (JSON.stringify(current.pragmatic) !== JSON.stringify(original.pragmatic)) delta.pragmatic = current.pragmatic
+        if (JSON.stringify(current.emotions) !== JSON.stringify(original.emotions)) delta.emotions = current.emotions
+        if (JSON.stringify(current.narratorStance) !== JSON.stringify(original.narratorStance)) delta.narratorStance = current.narratorStance
+        if (JSON.stringify(current.audienceResponse) !== JSON.stringify(original.audienceResponse)) delta.audienceResponse = current.audienceResponse
+        if (JSON.stringify(current.laRetrieval) !== JSON.stringify(original.laRetrieval)) delta.laRetrieval = current.laRetrieval
+        if (JSON.stringify(current.figurative) !== JSON.stringify(original.figurative)) delta.figurative = current.figurative
+        if (JSON.stringify(current.keyTerms) !== JSON.stringify(original.keyTerms)) delta.keyTerms = current.keyTerms
+
+        return delta
+    }
+
     const handleSubmit = async () => {
         if (!passageData?.id) return
+        if (loading) return // Prevent duplicate submits
 
         try {
             setLoading(true)
             if (editingId) {
-                const original = events.find(ev => ev.id === editingId)
-                const updated = await bhsaAPI.updateEvent(editingId, formData)
+                // Compute delta and use PATCH for partial updates
+                const delta = computeDelta(originalData, formData)
+                const hasChanges = Object.keys(delta).length > 0
+
+                let updated
+                if (hasChanges) {
+                    console.log('Patching event:', editingId, delta)
+                    updated = await bhsaAPI.patchEvent(editingId, delta)
+                    console.log('Event patched successfully:', updated)
+                } else {
+                    // No changes, just close modal
+                    setShowModal(false)
+                    return
+                }
+                // Update the events in the store
                 setEvents(events.map(ev => ev.id === editingId ? updated : ev))
 
-                if (aiSnapshot && original) {
+                if (aiSnapshot) {
+                    const original = events.find(ev => ev.id === editingId)
                     const fields = ['category', 'eventCore', 'discourseFunction', 'narrativeFunction'] as const
                     fields.forEach(field => {
-                        if (original[field] !== formData[field]) {
+                        if (original && original[field] !== formData[field]) {
                             const wasAiGenerated = aiSnapshot.events?.some((e: any) => e.eventCore === original.eventCore)
                             trackEdit('update', 'event', editingId, field, original[field], formData[field], wasAiGenerated)
                         }
                     })
                 }
             } else {
+                console.log('Creating event:', formData)
                 const created = await bhsaAPI.createEvent(passageData.id, formData)
+                console.log('Event created successfully:', created)
                 setEvents([...events, created])
 
                 if (aiSnapshot) {
@@ -329,9 +384,11 @@ function Stage4Events() {
                 }
             }
             setShowModal(false)
+            setOriginalData(null)
         } catch (err: any) {
             console.error('Error saving event:', err)
-            setError(err.response?.data?.detail || 'Failed to save event')
+            console.error('Error details:', err.response?.data || err.message)
+            setError(err.response?.data?.detail || err.message || 'Failed to save event')
         } finally {
             setLoading(false)
         }
@@ -545,197 +602,206 @@ function Stage4Events() {
 
             {/* Events list */}
             <div className="space-y-4">
-                {events.map((ev, idx) => (
-                    <Card
-                        key={ev.id || `ev-${ev.eventId}-${idx}`}
-                        className={`group transition-all ${isValidated(ev.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
-                    >
-                        <CardContent className="p-4">
-                            <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                    {/* Validation checkbox */}
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <button
-                                            onClick={() => toggleValidation('events', ev.id)}
-                                            className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(ev.id)
-                                                ? 'bg-verde-claro/20 text-verde-claro'
-                                                : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                                }`}
-                                        >
-                                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(ev.id)
-                                                ? 'border-verde-claro bg-verde-claro'
-                                                : 'border-areia'
-                                                }`}>
-                                                {isValidated(ev.id) && <Check className="w-3 h-3 text-white" />}
-                                            </div>
-                                            <span className="text-xs font-medium">
-                                                {isValidated(ev.id) ? '✓' : ''}
+                {[...events]
+                    .sort((a, b) => {
+                        // Natural sort by number in e<number>
+                        const numA = parseInt(a.eventId.replace(/^e/, ''), 10) || 0;
+                        const numB = parseInt(b.eventId.replace(/^e/, ''), 10) || 0;
+                        return numA - numB;
+                    })
+                    .map((ev, idx) => (
+                        <Card
+                            key={ev.id || `ev-${ev.eventId}-${idx}`}
+                            className={`group transition-all ${isValidated(ev.id) ? 'border-verde-claro/50 bg-verde-claro/5' : ''}`}
+                        >
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-1">
+                                        {/* Validation checkbox */}
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <button
+                                                onClick={() => toggleValidation('events', ev.id)}
+                                                className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(ev.id)
+                                                    ? 'bg-verde-claro/20 text-verde-claro'
+                                                    : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                                    }`}
+                                            >
+                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(ev.id)
+                                                    ? 'border-verde-claro bg-verde-claro'
+                                                    : 'border-areia'
+                                                    }`}>
+                                                    {isValidated(ev.id) && <Check className="w-3 h-3 text-white" />}
+                                                </div>
+                                                <span className="text-xs font-medium">
+                                                    {isValidated(ev.id) ? '✓' : ''}
+                                                </span>
+                                            </button>
+                                            <span className="text-lg font-semibold text-telha">{ev.eventId}</span>
+                                            <span className="text-lg font-medium text-preto">{ev.eventCore}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getCategoryColor(ev.category)}`}>
+                                                {ev.category}
                                             </span>
-                                        </button>
-                                        <span className="text-lg font-semibold text-telha">{ev.eventId}</span>
-                                        <span className="text-lg font-medium text-preto">{ev.eventCore}</span>
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getCategoryColor(ev.category)}`}>
-                                            {ev.category}
-                                        </span>
-                                        {ev.discourseFunction && (
-                                            <span className="text-xs text-verde bg-verde/10 px-2 py-0.5 rounded">
-                                                {ev.discourseFunction}
-                                            </span>
-                                        )}
-                                        {ev.narrativeFunction && (
-                                            <span className="text-xs text-azul bg-azul/10 px-2 py-0.5 rounded">
-                                                {ev.narrativeFunction}
-                                            </span>
-                                        )}
-                                    </div>
+                                            {ev.discourseFunction && (
+                                                <span className="text-xs text-verde bg-verde/10 px-2 py-0.5 rounded">
+                                                    {ev.discourseFunction}
+                                                </span>
+                                            )}
+                                            {ev.narrativeFunction && (
+                                                <span className="text-xs text-azul bg-azul/10 px-2 py-0.5 rounded">
+                                                    {ev.narrativeFunction}
+                                                </span>
+                                            )}
+                                        </div>
 
-                                    {(() => {
-                                        // Match event clauseId (DB UUID) to DB clause
-                                        const dbClause = dbClauses.find(c => c.id === ev.clauseId)
-                                        // Also try matching with BHSA clause via clauseIndex for display
-                                        const bhsaClause = dbClause
-                                            ? passageData?.clauses?.find(c => c.clause_id === dbClause.clauseIndex)
-                                            : null
+                                        {(() => {
+                                            // ev.clauseId is a UUID (database ID of the clause)
+                                            // Match by UUID directly, fallback to clauseIndex for legacy data
+                                            const dbClause = ev.clauseId 
+                                                ? dbClauses.find(c => c.id === ev.clauseId) 
+                                                : null
+                                            
+                                            // Also try matching with BHSA clause via clauseIndex for display
+                                            const bhsaClause = dbClause
+                                                ? passageData?.clauses?.find((c: any) => c.clause_id === dbClause.clauseIndex)
+                                                : null
 
-                                        if (!ev.clauseId) {
+                                            if (!ev.clauseId) {
+                                                return (
+                                                    <div className="mt-2 mb-3 pl-3 border-l-2 border-amarelo/20">
+                                                        <p className="text-xs text-amarelo/70 italic">(No segment linked)</p>
+                                                    </div>
+                                                )
+                                            }
+
+                                            // Use DB clause freeTranslation, or BHSA clause data
+                                            const translation = dbClause?.freeTranslation || bhsaClause?.freeTranslation
+                                            const clauseText = dbClause?.text || bhsaClause?.text
+                                            const clauseGloss = dbClause?.gloss || bhsaClause?.gloss
+
                                             return (
-                                                <div className="mt-2 mb-3 pl-3 border-l-2 border-amarelo/20">
-                                                    <p className="text-xs text-amarelo/70 italic">(No segment linked)</p>
+                                                <div className="mt-2 mb-3 pl-3 border-l-2 border-telha/20">
+                                                    {clauseText && (
+                                                        <p className="text-right text-lg font-serif text-preto mb-1" dir="rtl">{clauseText}</p>
+                                                    )}
+                                                    {clauseGloss && (
+                                                        <p className="text-sm text-verde italic mb-1">{clauseGloss}</p>
+                                                    )}
+                                                    {translation && (
+                                                        <p className="text-sm text-telha italic">"{translation}"</p>
+                                                    )}
+                                                    {!clauseText && !translation && (
+                                                        <p className="text-xs text-cinza/50 italic">(No clause data available)</p>
+                                                    )}
                                                 </div>
                                             )
-                                        }
+                                        })()}
 
-                                        // Use DB clause freeTranslation, or BHSA clause data
-                                        const translation = dbClause?.freeTranslation || bhsaClause?.freeTranslation
-                                        const clauseText = dbClause?.text || bhsaClause?.text
-                                        const clauseGloss = dbClause?.gloss || bhsaClause?.gloss
-
-                                        return (
-                                            <div className="mt-2 mb-3 pl-3 border-l-2 border-telha/20">
-                                                {clauseText && (
-                                                    <p className="text-right text-lg font-serif text-preto mb-1" dir="rtl">{clauseText}</p>
-                                                )}
-                                                {clauseGloss && (
-                                                    <p className="text-sm text-verde italic mb-1">{clauseGloss}</p>
-                                                )}
-                                                {translation && (
-                                                    <p className="text-sm text-telha italic">"{translation}"</p>
-                                                )}
-                                                {!clauseText && !translation && (
-                                                    <p className="text-xs text-cinza/50 italic">(No clause data available)</p>
-                                                )}
+                                        {ev.roles && ev.roles.length > 0 && (
+                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                {ev.roles
+                                                    .filter(r => {
+                                                        // Only show roles with valid participant data
+                                                        const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
+                                                        const displayValue = p ? p.gloss : r.participantId
+                                                        return displayValue && displayValue.trim() !== ''
+                                                    })
+                                                    .map((r, i) => {
+                                                        const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
+                                                        return (
+                                                            <div key={i} className="flex items-center gap-1.5 bg-areia/20 px-2 py-1 rounded-md text-sm">
+                                                                <User className="w-3 h-3 text-verde" />
+                                                                <span className="font-medium text-telha">{r.role}:</span>
+                                                                <span className="text-preto">{p ? p.gloss : r.participantId}</span>
+                                                            </div>
+                                                        )
+                                                    })}
                                             </div>
-                                        )
-                                    })()}
+                                        )}
 
-                                    {ev.roles && ev.roles.length > 0 && (
-                                        <div className="flex flex-wrap gap-2 mt-2">
-                                            {ev.roles
-                                                .filter(r => {
-                                                    // Only show roles with valid participant data
-                                                    const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
-                                                    const displayValue = p ? p.gloss : r.participantId
-                                                    return displayValue && displayValue.trim() !== ''
-                                                })
-                                                .map((r, i) => {
-                                                    const p = participants.find(p => p.participantId === r.participantId || p.id === r.participantId)
-                                                    return (
-                                                        <div key={i} className="flex items-center gap-1.5 bg-areia/20 px-2 py-1 rounded-md text-sm">
-                                                            <User className="w-3 h-3 text-verde" />
-                                                            <span className="font-medium text-telha">{r.role}:</span>
-                                                            <span className="text-preto">{p ? p.gloss : r.participantId}</span>
-                                                        </div>
-                                                    )
-                                                })}
-                                        </div>
-                                    )}
+                                        {/* Field presence indicators */}
+                                        {(() => {
+                                            const indicators = getFieldIndicators(ev)
+                                            return (
+                                                <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-areia/20">
+                                                    {/* Roles */}
+                                                    {indicators.roles > 0 && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+                                                            👥 {indicators.roles} Roles
+                                                        </span>
+                                                    )}
 
-                                    {/* Field presence indicators */}
-                                    {(() => {
-                                        const indicators = getFieldIndicators(ev)
-                                        const filledCount = [
-                                            indicators.roles > 0,
-                                            indicators.modifiers,
-                                            indicators.speechAct,
-                                            indicators.pragmatic,
-                                            indicators.emotions > 0,
-                                            indicators.narratorStance || indicators.audienceResponse,
-                                            indicators.figurative,
-                                            indicators.keyTerms > 0,
-                                            indicators.laTags
-                                        ].filter(Boolean).length
-                                        const totalFields = 9
+                                                    {/* Modifiers */}
+                                                    {indicators.modifiers && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-slate-50 text-slate-700 border border-slate-200 font-medium">
+                                                            ⚙️ Modifiers
+                                                        </span>
+                                                    )}
 
-                                        return (
-                                            <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-areia/20">
-                                                <span className="text-[10px] text-verde/60 mr-1">Fields:</span>
+                                                    {/* Speech Act */}
+                                                    {indicators.speechAct && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                                                            💬 {QUOTATION_TYPES.find(o => o.value === ev.speechAct?.quotationType)?.label || ev.speechAct?.quotationType || 'Speech'}
+                                                        </span>
+                                                    )}
 
-                                                {/* Roles */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.roles > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    👥 {indicators.roles}
-                                                </span>
+                                                    {/* Pragmatic */}
+                                                    {indicators.pragmatic && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-yellow-50 text-yellow-700 border border-yellow-200 font-medium">
+                                                            🗣️ Pragmatic
+                                                        </span>
+                                                    )}
 
-                                                {/* Modifiers */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.modifiers ? 'bg-slate-100 text-slate-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    ⚙️ Mod
-                                                </span>
+                                                    {/* Emotions */}
+                                                    {indicators.emotions > 0 && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-pink-50 text-pink-700 border border-pink-200 font-medium">
+                                                            💜 {indicators.emotions} Emotions
+                                                        </span>
+                                                    )}
 
-                                                {/* Speech Act */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.speechAct ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    💬 Speech
-                                                </span>
+                                                    {/* Narrator/Audience */}
+                                                    {(indicators.narratorStance || indicators.audienceResponse) && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-rose-50 text-rose-700 border border-rose-200 font-medium">
+                                                            🎭 Viewpoint
+                                                        </span>
+                                                    )}
 
-                                                {/* Pragmatic */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.pragmatic ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    🗣️ Prag
-                                                </span>
+                                                    {/* Figurative */}
+                                                    {indicators.figurative && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-purple-50 text-purple-700 border border-purple-200 font-medium">
+                                                            🎨 Figurative
+                                                        </span>
+                                                    )}
 
-                                                {/* Emotions */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.emotions > 0 ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    💖 {indicators.emotions}
-                                                </span>
+                                                    {/* Key Terms */}
+                                                    {indicators.keyTerms > 0 && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-orange-50 text-orange-700 border border-orange-200 font-medium">
+                                                            🔑 {indicators.keyTerms} Key Terms
+                                                        </span>
+                                                    )}
 
-                                                {/* Narrator/Audience */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${(indicators.narratorStance || indicators.audienceResponse) ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    🎭 N/A
-                                                </span>
+                                                    {/* LA Tags */}
+                                                    {indicators.laTags && (
+                                                        <span className="text-[10px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                                                            📦 LA Tags
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )
+                                        })()}
+                                    </div>
 
-                                                {/* Figurative */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.figurative ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    🎨 Fig
-                                                </span>
-
-                                                {/* Key Terms */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.keyTerms > 0 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    🔑 {indicators.keyTerms}
-                                                </span>
-
-                                                {/* LA Tags */}
-                                                <span className={`text-[10px] px-1.5 py-0.5 rounded ${indicators.laTags ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
-                                                    📦 LA
-                                                </span>
-
-                                                {/* Summary */}
-                                                <span className="text-[10px] text-verde/50 ml-2">
-                                                    ({filledCount}/{totalFields})
-                                                </span>
-                                            </div>
-                                        )
-                                    })()}
+                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button variant="ghost" size="sm" onClick={() => handleEdit(ev)}>
+                                            <Pencil className="w-4 h-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDelete(ev.id)}>
+                                            <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                    </div>
                                 </div>
-
-                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Button variant="ghost" size="sm" onClick={() => handleEdit(ev)}>
-                                        <Pencil className="w-4 h-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDelete(ev.id)}>
-                                        <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                ))}
+                            </CardContent>
+                        </Card>
+                    ))}
             </div>
 
             {events.length === 0 && (
@@ -754,6 +820,12 @@ function Stage4Events() {
                         <DialogTitle>{editingId ? 'Edit Event' : 'Add Event'}</DialogTitle>
                         <DialogDescription>Define an event with its category, roles, modifiers, and more.</DialogDescription>
                     </DialogHeader>
+
+                    {error && (
+                        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+                            <p className="text-sm font-medium">Error: {error}</p>
+                        </div>
+                    )}
 
                     <div className="space-y-4 py-4">
                         {/* Basic Info */}
@@ -1266,8 +1338,8 @@ function Stage4Events() {
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
-                        <Button onClick={handleSubmit} disabled={loading}>
+                        <Button type="button" variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
+                        <Button type="button" onClick={handleSubmit} disabled={loading}>
                             {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                             {editingId ? 'Save Changes' : 'Add Event'}
                         </Button>

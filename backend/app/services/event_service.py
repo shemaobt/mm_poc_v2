@@ -30,8 +30,19 @@ class EventService:
                 "keyTerms": True,
                 "clause": True
             },
-            order={"eventId": "asc"}
+            # order={"eventId": "asc"} # Removed DB sorting to use natural sort in Python
         )
+        
+        # Natural sort helper
+        def natural_sort_key(ev):
+            # Sort by number in e<number>
+            s = ev.eventId
+            if s.startswith('e') and s[1:].isdigit():
+                return (0, int(s[1:]))
+            return (1, s)
+
+        # Sort events
+        events.sort(key=natural_sort_key)
         
         # Transform to match frontend expectations
         result = []
@@ -313,8 +324,18 @@ class EventService:
     @staticmethod
     async def update(id: str, data: EventCreate) -> Dict:
         """Update event and all its nested relations"""
-        # Get current event to find passage_id
-        current = await db.event.find_unique(where={"id": id})
+        # Get current event to find passage_id and existing relations
+        current = await db.event.find_unique(
+            where={"id": id},
+            include={
+                "narratorStance": True,
+                "audienceResponse": True,
+                "modifiers": True,
+                "speechAct": True,
+                "pragmatic": True,
+                "figurative": True
+            }
+        )
         if not current:
             raise ValueError(f"Event {id} not found")
         
@@ -349,7 +370,7 @@ class EventService:
         }
         
         if data.clauseId:
-            update_data["clause"] = {"connect": {"id": data.clauseId}}
+            update_data["clauseId"] = data.clauseId
         
         # Update modifiers (upsert pattern)
         if data.modifiers:
@@ -380,17 +401,17 @@ class EventService:
                 }
             }
         
-        # Update speech act
-        if data.speechAct and (data.speechAct.type or data.speechAct.quotationType):
+        # Update speech act (always update if speechAct data is provided, even with empty values for N/A)
+        if data.speechAct is not None:
             update_data["speechAct"] = {
                 "upsert": {
                     "create": {
-                        "type": data.speechAct.type or "",
-                        "quotationType": data.speechAct.quotationType,
+                        "type": data.speechAct.type if data.speechAct.type else "",
+                        "quotationType": data.speechAct.quotationType if data.speechAct.quotationType else "",
                     },
                     "update": {
-                        "type": data.speechAct.type or "",
-                        "quotationType": data.speechAct.quotationType,
+                        "type": data.speechAct.type if data.speechAct.type else "",
+                        "quotationType": data.speechAct.quotationType if data.speechAct.quotationType else "",
                     }
                 }
             }
@@ -439,22 +460,26 @@ class EventService:
             }
         
         # Update narrator stance
-        if data.narratorStance:
+        if data.narratorStance and data.narratorStance.stance:
             update_data["narratorStance"] = {
                 "upsert": {
                     "create": {"stance": data.narratorStance.stance},
                     "update": {"stance": data.narratorStance.stance}
                 }
             }
+        elif data.narratorStance and current.narratorStance: # Only delete if exists
+             update_data["narratorStance"] = {"delete": True}
         
         # Update audience response
-        if data.audienceResponse:
+        if data.audienceResponse and data.audienceResponse.response:
             update_data["audienceResponse"] = {
                 "upsert": {
                     "create": {"response": data.audienceResponse.response},
                     "update": {"response": data.audienceResponse.response}
                 }
             }
+        elif data.audienceResponse and current.audienceResponse: # Only delete if exists
+             update_data["audienceResponse"] = {"delete": True}
         
         # Update LA retrieval
         if data.laRetrieval:
@@ -506,7 +531,8 @@ class EventService:
                 }
             else:
                 # Delete figurative if not figurative
-                update_data["figurative"] = {"delete": True}
+                if current.figurative:
+                    update_data["figurative"] = {"delete": True}
         
         # Update key terms (delete all and recreate)
         if data.keyTerms is not None:
@@ -555,7 +581,7 @@ class EventService:
             "discourseFunction": event.discourseFunction,
             "chainPosition": event.chainPosition,
             "narrativeFunction": event.narrativeFunction,
-            "roles": [{"role": r.role, "participantId": r.participantId} for r in (event.roles or [])],
+            "roles": [{"role": r.role, "participantId": r.participant.participantId if r.participant else r.participantId} for r in (event.roles or [])],
         }
         
         if event.modifiers:
@@ -636,8 +662,297 @@ class EventService:
         return ev_dict
 
     @staticmethod
+    async def patch(id: str, data) -> Dict:
+        """
+        Partial update event - only update fields that are provided in the delta.
+        This is more efficient than full update when only changing a few fields.
+        """
+        from app.models.schemas import EventPatch
+        
+        # Get current event to find passage_id and for comparison
+        current = await db.event.find_unique(
+            where={"id": id},
+            include={
+                "clause": True,
+                "roles": True,
+                "modifiers": True,
+                "speechAct": True,
+                "pragmatic": True,
+                "emotions": True,
+                "narratorStance": True,
+                "audienceResponse": True,
+                "laRetrieval": True,
+                "figurative": True,
+                "keyTerms": True
+            }
+        )
+        if not current:
+            raise ValueError(f"Event {id} not found")
+        
+        passage_id = current.passageId
+        update_data: Dict[str, Any] = {}
+        
+        # Only update scalar fields if provided
+        if data.category is not None:
+            update_data["category"] = data.category
+        if data.eventCore is not None:
+            update_data["eventCore"] = data.eventCore
+        if data.discourseFunction is not None:
+            update_data["discourseFunction"] = data.discourseFunction
+        if data.chainPosition is not None:
+            update_data["chainPosition"] = data.chainPosition
+        if data.narrativeFunction is not None:
+            update_data["narrativeFunction"] = data.narrativeFunction
+        # Note: clauseId is intentionally not updated in patch - it's a FK that requires full update
+        
+        # Only update roles if provided - batch participant lookups
+        if data.roles is not None:
+            # Get all participant IDs needed (could be UUIDs or logical participantIds)
+            participant_ids = [r.participantId for r in data.roles if r.participantId]
+            
+            # Try to find participants by both id (UUID) and participantId (logical)
+            participants = await db.participant.find_many(
+                where={
+                    "passageId": passage_id,
+                    "OR": [
+                        {"id": {"in": participant_ids}},
+                        {"participantId": {"in": participant_ids}}
+                    ]
+                }
+            ) if participant_ids else []
+            
+            # Create lookup map - map both id and participantId to the DB id
+            participant_map = {}
+            for p in participants:
+                participant_map[p.id] = p.id  # UUID -> UUID
+                participant_map[p.participantId] = p.id  # logical ID -> UUID
+            
+            # Build role creates
+            role_creates = []
+            for r in data.roles:
+                if r.participantId and r.participantId in participant_map:
+                    role_creates.append({
+                        "role": r.role,
+                        "participant": {"connect": {"id": participant_map[r.participantId]}}
+                    })
+            
+            update_data["roles"] = {
+                "deleteMany": {},
+                "create": role_creates,
+            }
+        
+        # Only update modifiers if provided
+        if data.modifiers is not None:
+            update_data["modifiers"] = {
+                "upsert": {
+                    "create": {
+                        "happened": data.modifiers.happened,
+                        "realness": data.modifiers.realness,
+                        "when": data.modifiers.when,
+                        "viewpoint": data.modifiers.viewpoint,
+                        "phase": data.modifiers.phase,
+                        "repetition": data.modifiers.repetition,
+                        "onPurpose": data.modifiers.onPurpose,
+                        "howKnown": data.modifiers.howKnown,
+                        "causation": data.modifiers.causation,
+                    },
+                    "update": {
+                        "happened": data.modifiers.happened,
+                        "realness": data.modifiers.realness,
+                        "when": data.modifiers.when,
+                        "viewpoint": data.modifiers.viewpoint,
+                        "phase": data.modifiers.phase,
+                        "repetition": data.modifiers.repetition,
+                        "onPurpose": data.modifiers.onPurpose,
+                        "howKnown": data.modifiers.howKnown,
+                        "causation": data.modifiers.causation,
+                    }
+                }
+            }
+        
+        # Only update speechAct if provided
+        if data.speechAct is not None:
+            update_data["speechAct"] = {
+                "upsert": {
+                    "create": {
+                        "type": data.speechAct.type if data.speechAct.type else "",
+                        "quotationType": data.speechAct.quotationType if data.speechAct.quotationType else "",
+                    },
+                    "update": {
+                        "type": data.speechAct.type if data.speechAct.type else "",
+                        "quotationType": data.speechAct.quotationType if data.speechAct.quotationType else "",
+                    }
+                }
+            }
+        
+        # Only update pragmatic if provided
+        if data.pragmatic is not None:
+            update_data["pragmatic"] = {
+                "upsert": {
+                    "create": {
+                        "discourseRegister": data.pragmatic.register,
+                        "socialAxis": data.pragmatic.socialAxis,
+                        "prominence": data.pragmatic.prominence,
+                        "pacing": data.pragmatic.pacing,
+                    },
+                    "update": {
+                        "discourseRegister": data.pragmatic.register,
+                        "socialAxis": data.pragmatic.socialAxis,
+                        "prominence": data.pragmatic.prominence,
+                        "pacing": data.pragmatic.pacing,
+                    }
+                }
+            }
+        
+        # Only update narratorStance if provided
+        if data.narratorStance is not None:
+            if data.narratorStance.stance:
+                update_data["narratorStance"] = {
+                    "upsert": {
+                        "create": {"stance": data.narratorStance.stance},
+                        "update": {"stance": data.narratorStance.stance}
+                    }
+                }
+            elif current.narratorStance:
+                update_data["narratorStance"] = {"delete": True}
+        
+        # Only update audienceResponse if provided
+        if data.audienceResponse is not None:
+            if data.audienceResponse.response:
+                update_data["audienceResponse"] = {
+                    "upsert": {
+                        "create": {"response": data.audienceResponse.response},
+                        "update": {"response": data.audienceResponse.response}
+                    }
+                }
+            elif current.audienceResponse:
+                update_data["audienceResponse"] = {"delete": True}
+        
+        # Only update laRetrieval if provided
+        if data.laRetrieval is not None:
+            update_data["laRetrieval"] = {
+                "upsert": {
+                    "create": {
+                        "emotionTags": Json(data.laRetrieval.emotionTags or []),
+                        "eventTags": Json(data.laRetrieval.eventTags or []),
+                        "registerTags": Json(data.laRetrieval.registerTags or []),
+                        "discourseTags": Json(data.laRetrieval.discourseTags or []),
+                        "socialTags": Json(data.laRetrieval.socialTags or []),
+                    },
+                    "update": {
+                        "emotionTags": Json(data.laRetrieval.emotionTags or []),
+                        "eventTags": Json(data.laRetrieval.eventTags or []),
+                        "registerTags": Json(data.laRetrieval.registerTags or []),
+                        "discourseTags": Json(data.laRetrieval.discourseTags or []),
+                        "socialTags": Json(data.laRetrieval.socialTags or []),
+                    }
+                }
+            }
+        
+        # Only update figurative if provided
+        if data.figurative is not None:
+            if data.figurative.isFigurative:
+                update_data["figurative"] = {
+                    "upsert": {
+                        "create": {
+                            "isFigurative": True,
+                            "figureType": data.figurative.figureType or "",
+                            "sourceDomain": data.figurative.sourceDomain,
+                            "targetDomain": data.figurative.targetDomain,
+                            "literalMeaning": data.figurative.literalMeaning,
+                            "intendedMeaning": data.figurative.intendedMeaning,
+                            "transferability": data.figurative.transferability,
+                            "translationNote": data.figurative.translationNote,
+                        },
+                        "update": {
+                            "isFigurative": True,
+                            "figureType": data.figurative.figureType or "",
+                            "sourceDomain": data.figurative.sourceDomain,
+                            "targetDomain": data.figurative.targetDomain,
+                            "literalMeaning": data.figurative.literalMeaning,
+                            "intendedMeaning": data.figurative.intendedMeaning,
+                            "transferability": data.figurative.transferability,
+                            "translationNote": data.figurative.translationNote,
+                        }
+                    }
+                }
+            elif current.figurative:
+                update_data["figurative"] = {"delete": True}
+        
+        # Only update keyTerms if provided
+        if data.keyTerms is not None:
+            term_creates = [{
+                "termId": kt.termId,
+                "sourceLemma": kt.sourceLemma,
+                "semanticDomain": kt.semanticDomain,
+                "consistency": kt.consistency,
+            } for kt in data.keyTerms]
+            update_data["keyTerms"] = {
+                "deleteMany": {},
+                "create": term_creates,
+            }
+        
+        # Only update emotions if provided
+        if data.emotions is not None:
+            # Get all participants for emotion links
+            participant_ids = [e.participantId for e in data.emotions if e.participantId]
+            participants = await db.participant.find_many(
+                where={
+                    "passageId": passage_id,
+                    "participantId": {"in": participant_ids}
+                }
+            ) if participant_ids else []
+            participant_map = {p.participantId: p.id for p in participants}
+            
+            emotion_creates = []
+            for e in data.emotions:
+                emotion_data: Dict[str, Any] = {
+                    "primary": e.primary,
+                    "secondary": e.secondary,
+                    "intensity": e.intensity,
+                    "source": e.source,
+                    "confidence": e.confidence,
+                    "notes": e.notes,
+                }
+                if e.participantId and e.participantId in participant_map:
+                    emotion_data["participant"] = {"connect": {"id": participant_map[e.participantId]}}
+                    emotion_data["participantId"] = e.participantId
+                emotion_creates.append(emotion_data)
+            
+            update_data["emotions"] = {
+                "deleteMany": {},
+                "create": emotion_creates,
+            }
+        
+        # Perform the update only if there's something to update
+        if not update_data:
+            # No changes, just return current data
+            return await EventService._transform_event(current, passage_id)
+        
+        event = await db.event.update(
+            where={"id": id},
+            data=update_data,
+            include={
+                "clause": True,
+                "roles": True,
+                "modifiers": True,
+                "speechAct": True,
+                "pragmatic": True,
+                "emotions": True,
+                "narratorStance": True,
+                "audienceResponse": True,
+                "laRetrieval": True,
+                "figurative": True,
+                "keyTerms": True,
+            }
+        )
+        
+        return await EventService._transform_event(event, passage_id)
+
+    @staticmethod
     async def delete(id: str) -> Dict:
         """Delete an event"""
         return await db.event.delete(
             where={"id": id}
         )
+

@@ -135,6 +135,7 @@ async def list_all_passages():
     """
     List all meaning maps (both completed and in-progress).
     Shows all passages, not just completed ones.
+    Includes userId for ownership checks on the frontend.
     """
     db = get_db()
     
@@ -145,6 +146,7 @@ async def list_all_passages():
             include={
                 "participants": True,
                 "events": True,
+                "user": True,  # Include user for owner info
             }
         )
         
@@ -160,6 +162,8 @@ async def list_all_passages():
                     "thematicSpine": p.thematicSpine,
                     "participantCount": len(p.participants) if p.participants else 0,
                     "eventCount": len(p.events) if p.events else 0,
+                    "userId": p.userId,  # Owner ID for permission checks
+                    "ownerName": p.user.username if p.user else None,  # Owner name for display
                 }
                 for p in passages
             ]

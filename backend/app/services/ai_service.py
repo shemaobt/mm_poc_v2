@@ -110,15 +110,24 @@ def build_events_system_prompt(participants_context: str) -> str:
                     {{ "role": "doer", "participantId": "p1" }},
                     {{ "role": "undergoer", "participantId": "p2" }}
                 ],
-                "modifiers": {{ ... }},
+                "modifiers": {{ "happened": "yes", "realness": "real", "when": "before_now", "viewpoint": "as_whole", "phase": "none", "repetition": "once", "onPurpose": "intended", "howKnown": "saw_it", "causation": "direct" }},
                 "speechAct": {{ "type": "stating", "quotationType": "direct" }},
-                "pragmatic": {{ ... }},
-                "emotions": [ ... ],
-                "narratorStance": {{ ... }},
-                "audienceResponse": {{ ... }},
-                "laTags": {{ ... }},
-                "figurative": {{ ... }},
-                "keyTerms": [ ... ]
+                "pragmatic": {{ "register": "narrative_formal", "socialAxis": "peer_to_peer", "prominence": "high", "pacing": "normal" }},
+                "emotions": [{{ "participantId": "p1", "primary": "grief", "secondary": "despair", "intensity": "high", "source": "contextual", "confidence": "high" }}],
+                "narratorStance": {{ "stance": "sympathetic" }},
+                "audienceResponse": {{ "response": "pathos" }},
+                "laTags": {{
+                    "emotionTags": ["grief", "despair"],
+                    "eventTags": ["death", "loss"],
+                    "registerTags": ["narrative_formal"],
+                    "discourseTags": ["background"],
+                    "socialTags": ["family"]
+                }},
+                "figurative": {{ "isFigurative": true, "figureType": "metaphor", "sourceDomain": "journey", "targetDomain": "life" }},
+                "keyTerms": [
+                    {{ "termId": "kt1", "sourceLemma": "אֱלֹהִים", "semanticDomain": "divine_name", "consistency": "always" }},
+                    {{ "termId": "kt2", "sourceLemma": "בָּרָא", "semanticDomain": "theological", "consistency": "preferred" }}
+                ]
             }}
         ],
         "discourse": [
@@ -161,9 +170,44 @@ def build_events_system_prompt(participants_context: str) -> str:
     - figureType: metaphor, simile, metonymy, synecdoche, idiom, hyperbole, euphemism, personification, merism, hendiadys, irony, rhetorical_question
     - transferability: universal, near_universal, cultural, unique
     
-    KEY TERM VALUES:
-    - semanticDomain: divine_name, theological, ritual, kinship, legal, geographic, cultural
-    - consistency: always, preferred, flexible
+    LA TAGS (Language Assistant Retrieval Tags):
+    These are semantic tags that help retrieve similar passages for translation assistance.
+    {{
+        "emotionTags": ["grief", "joy"],      // Emotions present in this event
+        "eventTags": ["death", "marriage"],   // Type of life event
+        "registerTags": ["formal", "poetic"], // Discourse register
+        "discourseTags": ["background", "climax"], // Narrative function
+        "socialTags": ["family", "legal"]     // Social context
+    }}
+    
+    LA TAG VALUES:
+    - emotionTags: Use values from EMOTION VALUES (joy, grief, fear, anger, love, etc.)
+    - eventTags: birth, death, marriage, battle, journey, covenant, blessing, curse, miracle, prophecy, judgment, rescue, creation, destruction
+    - registerTags: narrative, speech, poetry, legal, prophetic, wisdom, lament, praise
+    - discourseTags: setting, background, mainline, climax, resolution, flashback, foreshadowing
+    - socialTags: family, royal, priestly, military, agricultural, commercial, legal, religious
+    
+    KEY TERM STRUCTURE:
+    {{
+        "termId": "kt1",           // Unique ID for this term (kt1, kt2, etc.)
+        "sourceLemma": "אֱלֹהִים",   // The Hebrew lemma/word
+        "semanticDomain": "divine_name",  // Category of the term
+        "consistency": "always"    // How consistently it should be translated
+    }}
+    
+    KEY TERM DOMAINS:
+    - divine_name: Names of God (יהוה, אֱלֹהִים, אֲדֹנָי, אֵל, שַׁדַּי)
+    - theological: Covenant/theological concepts (בְּרִית, חֶסֶד, צֶדֶק, אֱמֶת, קָדוֹשׁ, תּוֹרָה)
+    - ritual: Sacrifice/purity terms (קָרְבָּן, זֶבַח, טָהוֹר, טָמֵא, כֹּהֵן)
+    - kinship: Family terms (אָב, אֵם, בֵּן, בַּת, אָח, אָחוֹת)
+    - legal: Legal/judicial terms (מִשְׁפָּט, דִּין, עֵד)
+    - geographic: Place names (יְרוּשָׁלַיִם, צִיּוֹן, מִצְרַיִם, בָּבֶל)
+    - cultural: Cultural practices/concepts unique to the text
+    
+    CONSISTENCY VALUES:
+    - always: Must be translated the same way every time (divine names)
+    - preferred: Should be consistent but context may allow variation
+    - flexible: Can vary based on context
     
     RULES:
     1. Map every main verbal clause to an Event with FULL details.
@@ -172,6 +216,19 @@ def build_events_system_prompt(participants_context: str) -> str:
     4. Use the provided participant IDs (p1, p2, etc.) in event roles.
     5. Be thorough but ground all analysis in the provided text.
     6. For events with category 'SPEECH' or 'COMMUNICATION', you MUST include the 'speechAct' object.
+    7. For each event, identify KEY TERMS - significant Hebrew words that require consistent translation:
+       - Divine names from participants with type 'divine'
+       - Theologically significant verbs (create, bless, covenant, redeem, save, etc.)
+       - Kinship terms when family relationships are central to the event
+       - Ritual/legal terms in ceremonial or legal contexts
+       Include keyTerms array even if only one term is identified. Use the Hebrew lemma from the clause or participant.
+    8. For each event, provide LA TAGS (laTags) to enable semantic retrieval:
+       - emotionTags: Based on the emotions detected in the event
+       - eventTags: The type of life/narrative event (death, marriage, battle, etc.)
+       - registerTags: The discourse register (narrative, speech, poetry, etc.)
+       - discourseTags: The narrative function (setting, climax, resolution, etc.)
+       - socialTags: The social context (family, royal, legal, etc.)
+       Include laTags for EVERY event - these are essential for translation assistance.
     """
 
 def build_translation_system_prompt() -> str:

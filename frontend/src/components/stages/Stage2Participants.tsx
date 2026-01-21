@@ -89,8 +89,8 @@ function Stage2Participants() {
     const [newPropValue, setNewPropValue] = useState<string>('')
 
     useEffect(() => {
-        // Only fetch from DB if no participants in store (avoid overwriting AI-generated data)
-        if (passageData?.id && participants.length === 0) {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
+        if (passageData?.id) {
             fetchParticipants(passageData.id)
         }
     }, [passageData?.id])
@@ -302,7 +302,21 @@ function Stage2Participants() {
 
             {/* Participants grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {participants.map((p, index) => (
+                {[...participants].sort((a, b) => {
+                    // Sort by numeric part of ID (p1, p2, ... p10)
+                    const getNum = (id: string) => {
+                        const match = id.match(/^p(\d+)$/);
+                        return match ? parseInt(match[1]) : Infinity;
+                    };
+                    const numA = getNum(a.participantId);
+                    const numB = getNum(b.participantId);
+
+                    if (numA !== Infinity && numB !== Infinity) {
+                        return numA - numB;
+                    }
+                    // Fallback to string comparison for non-standard IDs
+                    return a.participantId.localeCompare(b.participantId, undefined, { numeric: true });
+                }).map((p, index) => (
                     <Card
                         key={p.id || `temp-${p.participantId}-${index}`}
                         className={`group transition-all ${isValidated(p.id) ? 'border-verde-claro/50 bg-verde-claro/5' : 'hover:border-telha/30'}`}
@@ -395,11 +409,12 @@ function Stage2Participants() {
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Type</label>
-                                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })}>
+                                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {PARTICIPANT_TYPES.map(t => (
                                             <SelectItem key={t} value={t}>{t}</SelectItem>
                                         ))}
@@ -432,11 +447,12 @@ function Stage2Participants() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Quantity</label>
-                                <Select value={formData.quantity} onValueChange={(v) => setFormData({ ...formData, quantity: v })}>
+                                <Select value={formData.quantity} onValueChange={(v) => setFormData({ ...formData, quantity: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {QUANTITIES.map(q => (
                                             <SelectItem key={q} value={q}>{q}</SelectItem>
                                         ))}
@@ -445,11 +461,12 @@ function Stage2Participants() {
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Reference Status</label>
-                                <Select value={formData.referenceStatus} onValueChange={(v) => setFormData({ ...formData, referenceStatus: v })}>
+                                <Select value={formData.referenceStatus} onValueChange={(v) => setFormData({ ...formData, referenceStatus: v === '__clear__' ? '' : v })}>
                                     <SelectTrigger>
-                                        <SelectValue />
+                                        <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
                                         {REFERENCE_STATUS.map(r => (
                                             <SelectItem key={r} value={r}>{r}</SelectItem>
                                         ))}
