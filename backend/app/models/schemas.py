@@ -54,7 +54,7 @@ class ParticipantBase(BaseModel):
     participantId: str
     hebrew: str
     gloss: str
-    type: str
+    type: Optional[str] = None
     quantity: Optional[str] = None
     referenceStatus: Optional[str] = None
     properties: Optional[List[PropertyDimension]] = None
@@ -80,10 +80,10 @@ class ParticipantResponse(ParticipantBase):
 
 class RelationBase(BaseModel):
     """Base relation model"""
-    category: str
-    type: str
-    sourceId: str
-    targetId: str
+    category: Optional[str] = None
+    type: Optional[str] = None
+    sourceId: Optional[str] = None
+    targetId: Optional[str] = None
 
 class RelationCreate(RelationBase):
     """Create relation"""
