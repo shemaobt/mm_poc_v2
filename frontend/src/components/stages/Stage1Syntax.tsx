@@ -342,6 +342,14 @@ function Stage1Syntax() {
     // Fetch passage in preview mode (no locking yet)
     const handleFetchPassage = async () => {
         if (!reference.trim()) return
+        
+        // Check for partial verse indicators before fetching
+        if (hasPartialVerseIndicator(reference)) {
+            toast.error('Partial Verses Not Supported', {
+                description: 'BHSA data does not support partial verse references (like 19a, 19b). Please choose a pericope with complete verses.'
+            })
+            return
+        }
 
         try {
             clearPassage() // Clear any existing data
