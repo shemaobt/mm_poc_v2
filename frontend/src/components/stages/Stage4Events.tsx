@@ -654,13 +654,15 @@ function Stage4Events() {
                                         </div>
 
                                         {(() => {
-                                            // ev.clauseId is the 1-based logical index (e.g. "1", "2") from backend
-                                            // Match against clauseIndex+1 to find the correct DB clause
-                                            const clauseIndex = ev.clauseId ? parseInt(ev.clauseId, 10) - 1 : -1
-                                            const dbClause = dbClauses.find(c => c.clauseIndex === clauseIndex)
-                                            // Also try matching with BHSA clause via clause_id for display
+                                            // ev.clauseId is a UUID (database ID of the clause)
+                                            // Match by UUID directly, fallback to clauseIndex for legacy data
+                                            const dbClause = ev.clauseId 
+                                                ? dbClauses.find(c => c.id === ev.clauseId) 
+                                                : null
+                                            
+                                            // Also try matching with BHSA clause via clauseIndex for display
                                             const bhsaClause = dbClause
-                                                ? passageData?.clauses?.find(c => c.clause_id === dbClause.clauseIndex)
+                                                ? passageData?.clauses?.find((c: any) => c.clause_id === dbClause.clauseIndex)
                                                 : null
 
                                             if (!ev.clauseId) {
