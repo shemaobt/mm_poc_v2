@@ -125,6 +125,10 @@ export const bhsaAPI = {
         const response = await apiClient.post(`/api/passages/${passageId}/relations`, data)
         return response.data
     },
+    updateRelation: async (id: string, data: any) => {
+        const response = await apiClient.put(`/api/relations/${id}`, data)
+        return response.data
+    },
     deleteRelation: async (id: string) => {
         const response = await apiClient.delete(`/api/relations/${id}`)
         return response.data
@@ -155,6 +159,10 @@ export const bhsaAPI = {
     },
     createDiscourse: async (passageId: string, data: any) => {
         const response = await apiClient.post(`/api/passages/${passageId}/discourse`, data)
+        return response.data
+    },
+    updateDiscourse: async (id: string, data: any) => {
+        const response = await apiClient.put(`/api/discourse/${id}`, data)
         return response.data
     },
     deleteDiscourse: async (id: string) => {
