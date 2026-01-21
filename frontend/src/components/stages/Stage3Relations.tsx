@@ -44,8 +44,8 @@ function Stage3Relations() {
     })
 
     useEffect(() => {
-        // Only fetch from DB if no relations in store (avoid overwriting AI-generated data)
-        if (passageData?.id && relations.length === 0) {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
+        if (passageData?.id) {
             fetchRelations(passageData.id)
         }
     }, [passageData?.id])

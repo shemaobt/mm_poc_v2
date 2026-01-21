@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI, passagesAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
@@ -226,18 +226,11 @@ function Stage4Events() {
     })
     // Track original data to compute delta for partial updates
     const [originalData, setOriginalData] = useState<EventCreate | null>(null)
-    
-    // Track which passage we've already fetched to prevent duplicate fetches
-    const fetchedPassageRef = useRef<string | null>(null)
 
     useEffect(() => {
-        if (passageData?.id && passageData.id !== fetchedPassageRef.current) {
-            // Only fetch if we haven't fetched for this passage yet
-            fetchedPassageRef.current = passageData.id
-            // Fetch DB clauses to get UUID mappings
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
+        if (passageData?.id) {
             fetchDbClauses(passageData.id)
-            // Always fetch events from DB to ensure we have complete data with all sub-models
-            // The store might have stale data from AI analysis that doesn't include modifiers/pragmatic
             fetchEvents(passageData.id)
         }
     }, [passageData?.id])

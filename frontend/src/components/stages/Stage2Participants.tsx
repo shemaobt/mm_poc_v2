@@ -89,8 +89,8 @@ function Stage2Participants() {
     const [newPropValue, setNewPropValue] = useState<string>('')
 
     useEffect(() => {
-        // Only fetch from DB if no participants in store (avoid overwriting AI-generated data)
-        if (passageData?.id && participants.length === 0) {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
+        if (passageData?.id) {
             fetchParticipants(passageData.id)
         }
     }, [passageData?.id])

@@ -76,13 +76,10 @@ function Stage5Discourse() {
     })
 
     useEffect(() => {
+        // Always fetch fresh data from DB when stage mounts to ensure consistency
         if (passageData?.id) {
-            // Fetch DB clauses for clause matching
             fetchDbClauses(passageData.id)
-            // Only fetch from DB if no discourse in store (avoid overwriting AI-generated data)
-            if (discourse.length === 0) {
-                fetchDiscourse(passageData.id)
-            }
+            fetchDiscourse(passageData.id)
         }
     }, [passageData?.id])
 
