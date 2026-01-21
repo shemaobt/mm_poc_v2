@@ -43,6 +43,10 @@ function Stage1Syntax() {
     // Lock state
     const [currentLock, setCurrentLock] = useState<string | null>(null) // Reference of currently held lock
     const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    
+    // Preview mode: show skeleton without locking until user clicks "Start"
+    const [previewData, setPreviewData] = useState<{ reference: string; clauseCount: number; mainline: number; background: number } | null>(null)
+    const [isPreviewMode, setIsPreviewMode] = useState(false)
 
     // Lock management functions
     const acquireLock = useCallback(async (ref: string): Promise<boolean> => {
@@ -130,10 +134,12 @@ function Stage1Syntax() {
             const myLock = locks.find(lock => lock.userId === user?.id)
             
             if (myLock) {
-                // User has an active lock - restore the session
+                // User has an active lock - restore the session (skip preview mode)
                 setCurrentLock(myLock.pericopeRef)
                 setReference(myLock.pericopeRef)
                 setSearchTerm(myLock.pericopeRef)
+                setIsPreviewMode(false) // Skip preview, they already started
+                setPreviewData(null)
                 
                 // Find the pericope in the list and select it
                 const pericopes = await pericopesAPI.list({ search: myLock.pericopeRef, limit: 10 })
@@ -160,7 +166,7 @@ function Stage1Syntax() {
                         description: `You were working on ${myLock.pericopeRef}`
                     })
                     
-                    // Fetch the passage
+                    // Fetch the passage directly (no preview needed, already locked)
                     try {
                         setLoading(true)
                         setLoadingMessage('Restoring your previous session...')
@@ -333,8 +339,54 @@ function Stage1Syntax() {
         }
     }
 
+    // Fetch passage in preview mode (no locking yet)
     const handleFetchPassage = async () => {
         if (!reference.trim()) return
+
+        try {
+            clearPassage() // Clear any existing data
+            setPreviewData(null)
+            setIsPreviewMode(false)
+            setLoading(true)
+            setLoadingMessage('Fetching passage preview from BHSA...')
+            setError(null)
+            
+            // Fetch the passage data for preview only
+            const data = await bhsaAPI.fetchPassage(reference)
+
+            if (data.clauses && data.clauses.length > 0) {
+                const mainlineCount = data.clauses.filter((c: any) => c.is_mainline).length
+                const backgroundCount = data.clauses.filter((c: any) => !c.is_mainline).length
+                
+                // Store preview info
+                setPreviewData({
+                    reference: data.reference,
+                    clauseCount: data.clauses.length,
+                    mainline: mainlineCount,
+                    background: backgroundCount
+                })
+                setIsPreviewMode(true)
+                setLoadingMessage('')
+                
+                // Store full data in a temp ref for when user confirms
+                // We'll refetch on start to ensure fresh data
+            } else {
+                setError('No clauses found for this passage.')
+                setLoadingMessage('')
+            }
+
+        } catch (err: any) {
+            console.error('Failed to fetch passage:', err)
+            setError(err.response?.data?.detail || 'Failed to fetch passage.')
+            setLoadingMessage('')
+        } finally {
+            setLoading(false)
+        }
+    }
+    
+    // Start analysis - lock the pericope and show full data
+    const handleStartAnalysis = async () => {
+        if (!reference.trim() || !previewData) return
 
         try {
             // Release any existing lock first
@@ -348,15 +400,13 @@ function Stage1Syntax() {
                 return // Lock failed, user was notified
             }
             
-            clearPassage() // Clear any existing data
             setLoading(true)
-            setLoadingMessage('Fetching passage from BHSA...')
+            setLoadingMessage('Starting analysis...')
             setError(null)
             
-            // The BHSA endpoint creates the passage in DB and returns the ID
+            // Fetch full passage data now that we have the lock
             const data = await bhsaAPI.fetchPassage(reference)
 
-            // BHSA endpoint now returns the passage ID - no need to create again
             if (data.id || data.passage_id) {
                 setPassageData({
                     id: data.id || data.passage_id,
@@ -365,6 +415,8 @@ function Stage1Syntax() {
                     clauses: data.clauses
                 })
                 setCheckedClauses(new Set()) // Reset checks for new passage
+                setIsPreviewMode(false)
+                setPreviewData(null)
                 setLoadingMessage('')
             } else {
                 // Fallback: if somehow ID is missing, try to create
@@ -381,6 +433,8 @@ function Stage1Syntax() {
                         clauses: data.clauses
                     })
                     setCheckedClauses(new Set())
+                    setIsPreviewMode(false)
+                    setPreviewData(null)
                 } catch (persistErr) {
                     console.error("Failed to persist passage:", persistErr)
                     setError("Failed to initialize passage session. Database error.")
@@ -389,12 +443,21 @@ function Stage1Syntax() {
             }
 
         } catch (err: any) {
-            console.error('Failed to fetch passage:', err)
-            setError(err.response?.data?.detail || 'Failed to fetch passage.')
+            console.error('Failed to start analysis:', err)
+            setError(err.response?.data?.detail || 'Failed to start analysis.')
             setLoadingMessage('')
         } finally {
             setLoading(false)
         }
+    }
+    
+    // Cancel preview and go back to selection
+    const handleCancelPreview = () => {
+        setPreviewData(null)
+        setIsPreviewMode(false)
+        setSelectedPericope(null)
+        setReference('')
+        setSearchTerm('')
     }
 
     // Auto-translate Logic
@@ -654,15 +717,93 @@ function Stage1Syntax() {
             </Card>
 
             {/* Warning for duplicates */}
-            {duplicateWarning && !passageData && (
+            {duplicateWarning && !passageData && !isPreviewMode && (
                 <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg flex items-center gap-2 animate-in fade-in">
                     <AlertTriangle className="w-4 h-4" />
                     {duplicateWarning}
                 </div>
             )}
 
+            {/* Preview Mode - Skeleton with Start Button */}
+            {isPreviewMode && previewData && !passageData && (
+                <Card className="animate-in fade-in slide-in-from-bottom-4 border-2 border-dashed border-telha/30 bg-gradient-to-br from-areia/30 to-white">
+                    <CardHeader className="text-center pb-4">
+                        <div className="mx-auto w-16 h-16 rounded-full bg-telha/10 flex items-center justify-center mb-4">
+                            <BookOpen className="w-8 h-8 text-telha" />
+                        </div>
+                        <CardTitle className="text-2xl text-telha">{previewData.reference}</CardTitle>
+                        <CardDescription className="text-verde text-base mt-2">
+                            Preview loaded. Ready to start analysis?
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {/* Skeleton stats */}
+                        <div className="grid grid-cols-3 gap-4 mb-6">
+                            <div className="text-center p-4 bg-white rounded-lg border border-areia-escuro/10 shadow-sm">
+                                <div className="text-3xl font-bold text-preto">{previewData.clauseCount}</div>
+                                <div className="text-sm text-verde/60">Total Clauses</div>
+                            </div>
+                            <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200/50 shadow-sm">
+                                <div className="text-3xl font-bold text-amber-700">{previewData.mainline}</div>
+                                <div className="text-sm text-amber-600/80">Mainline</div>
+                            </div>
+                            <div className="text-center p-4 bg-verde-claro/10 rounded-lg border border-verde-claro/20 shadow-sm">
+                                <div className="text-3xl font-bold text-verde-claro">{previewData.background}</div>
+                                <div className="text-sm text-verde-claro/80">Background</div>
+                            </div>
+                        </div>
+                        
+                        {/* Skeleton clause preview */}
+                        <div className="space-y-2 mb-6">
+                            {[...Array(Math.min(3, previewData.clauseCount))].map((_, i) => (
+                                <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="w-8 h-8 rounded bg-gray-200 animate-pulse" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse" />
+                                        <div className="h-3 bg-gray-100 rounded w-1/2 animate-pulse" />
+                                    </div>
+                                    <div className="h-4 bg-gray-200 rounded w-20 animate-pulse" />
+                                </div>
+                            ))}
+                            {previewData.clauseCount > 3 && (
+                                <div className="text-center text-sm text-verde/50 py-2">
+                                    + {previewData.clauseCount - 3} more clauses
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex gap-3 justify-center">
+                            <Button
+                                variant="outline"
+                                onClick={handleCancelPreview}
+                                className="px-6"
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleStartAnalysis}
+                                disabled={loading}
+                                className="px-8 gap-2 bg-telha hover:bg-telha/90"
+                            >
+                                {loading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Sparkles className="w-4 h-4" />
+                                )}
+                                Start Analysis
+                            </Button>
+                        </div>
+                        
+                        <p className="text-center text-xs text-verde/50 mt-4">
+                            Starting will lock this pericope for your exclusive use
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Existing Passages List */}
-            {existingPassages.length > 0 && !passageData && (
+            {existingPassages.length > 0 && !passageData && !isPreviewMode && (
                 <Card className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -801,7 +942,7 @@ function Stage1Syntax() {
             )}
 
             {/* Placeholder when no data */}
-            {!passageData && bhsaLoaded && (
+            {!passageData && !isPreviewMode && bhsaLoaded && (
                 <Card className="border-dashed">
                     <CardContent className="py-12 text-center text-verde/60">
                         <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-30" />
