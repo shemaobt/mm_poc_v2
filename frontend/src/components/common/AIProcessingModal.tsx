@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { bhsaAPI, metricsAPI } from '../../services/api'
+import { useState, useRef } from 'react'
+import { metricsAPI } from '../../services/api'
 import { usePassageStore } from '../../stores/passageStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog'
 import { Button } from '../ui/button'
@@ -10,13 +10,25 @@ interface AIProcessingModalProps {
     onClose: () => void
 }
 
+interface ProgressInfo {
+    current: number
+    total: number
+    message?: string
+}
+
+interface StepProgress {
+    [key: number]: ProgressInfo
+}
+
 export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModalProps) {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [status, setStatus] = useState<'idle' | 'processing' | 'success'>('idle')
     const [currentStep, setCurrentStep] = useState(0)
+    const [stepProgress, setStepProgress] = useState<StepProgress>({})
+    const eventSourceRef = useRef<EventSource | null>(null)
 
-    const { passageData, setParticipants, setRelations, setEvents, setDiscourse, setAiSnapshot } = usePassageStore()
+    const { passageData, fetchEvents, fetchDiscourse, setAiSnapshot } = usePassageStore()
 
     const steps = [
         { icon: Brain, label: 'Analyzing text...' },
@@ -32,47 +44,118 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
         setLoading(true)
         setError(null)
         setStatus('processing')
+        setStepProgress({})
+        setCurrentStep(0)
 
         try {
-            // STEP 0: Analysis Started
-            setCurrentStep(0)
-
-            // STEP 1: Phase 1 (Participants & Relations)
-            setCurrentStep(1)
-            const phase1Resp = await bhsaAPI.aiPhase1(passageData.reference, '')
-            const phase1Data = phase1Resp.data
-
-            // Update store incrementally
-            if (phase1Data.participants) setParticipants(phase1Data.participants)
-            if (phase1Data.relations) setRelations(phase1Data.relations)
-
-            // STEP 2: Identifying/Mapping Relations (Visual Step, quick transition)
-            setCurrentStep(2)
-            await new Promise(r => setTimeout(r, 500))
-
-            // STEP 3: Phase 2 (Events & Discourse) - This uses Context from Phase 1
-            setCurrentStep(3)
-            const phase2Resp = await bhsaAPI.aiPhase2(passageData.reference, '')
-            const phase2Data = phase2Resp.data
-
-            // Update store with events/discourse
-            if (phase2Data.events) setEvents(phase2Data.events)
-            if (phase2Data.discourse) setDiscourse(phase2Data.discourse)
-
-            // STEP 4: Finalizing
-            setCurrentStep(4)
-
-            // Create snapshot for metrics tracking (Combined data)
-            const combinedData = { ...phase1Data, ...phase2Data }
-
-            try {
-                if (passageData?.id) {
-                    console.log('Sending snapshot data for passage:', passageData.id)
-                    const snapshotResponse = await metricsAPI.createSnapshot(passageData.id, combinedData)
-                    setAiSnapshot(combinedData, snapshotResponse.snapshotId)
+            // Use full SSE stream for all phases
+            // Note: EventSource needs full URL since it doesn't use axios
+            const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+            
+            await new Promise<void>((resolve, reject) => {
+                const encodedRef = encodeURIComponent(passageData.reference)
+                const eventSource = new EventSource(
+                    `${API_BASE}/api/ai/analyze/stream?passage_ref=${encodedRef}`
+                )
+                eventSourceRef.current = eventSource
+                
+                eventSource.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data)
+                        console.log('[SSE] Progress:', data)
+                        
+                        if (data.step === 'error') {
+                            eventSource.close()
+                            reject(new Error(data.message))
+                            return
+                        }
+                        
+                        // Phase mapping: phase 0=init, 1=participants, 2=relations, 3=events, 4=discourse, 5=complete
+                        const phaseToStep: { [key: number]: number } = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 4 }
+                        
+                        if (data.phase !== undefined) {
+                            setCurrentStep(phaseToStep[data.phase] ?? data.phase)
+                        }
+                        
+                        // Update progress for specific steps
+                        if (data.step === 'participant') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                1: { current: data.current, total: data.total, message: data.message }
+                            }))
+                        }
+                        
+                        if (data.step === 'relation') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                2: { current: data.current, total: data.total, message: data.message }
+                            }))
+                        }
+                        
+                        if (data.step === 'event') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                3: { current: data.current, total: data.total, message: data.message }
+                            }))
+                        }
+                        
+                        if (data.step === 'discourse') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                4: { current: data.current, total: data.total, message: data.message }
+                            }))
+                        }
+                        
+                        // Show totals when AI completes each phase
+                        if (data.step === 'ai_phase1_complete') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                1: { current: 0, total: data.totalParticipants || 0, message: `Found ${data.totalParticipants} participants` },
+                                2: { current: 0, total: data.totalRelations || 0, message: `Found ${data.totalRelations} relations` }
+                            }))
+                        }
+                        
+                        if (data.step === 'ai_phase2_complete') {
+                            setStepProgress(prev => ({
+                                ...prev,
+                                3: { current: 0, total: data.totalEvents || 0, message: `Found ${data.totalEvents} events` },
+                                4: { current: 0, total: data.totalDiscourse || 0, message: `Found ${data.totalDiscourse} discourse` }
+                            }))
+                        }
+                        
+                        if (data.step === 'complete') {
+                            eventSource.close()
+                            resolve()
+                        }
+                    } catch (e) {
+                        console.error('[SSE] Parse error:', e)
+                    }
                 }
-            } catch (snapErr: any) {
-                console.warn('Failed to create AI snapshot:', snapErr)
+                
+                eventSource.onerror = (err) => {
+                    console.error('[SSE] Error:', err)
+                    eventSource.close()
+                    reject(new Error('Connection lost during analysis. Please check your internet connection.'))
+                }
+            })
+            
+            // Fetch the saved data to update the store
+            if (passageData?.id) {
+                await fetchEvents(passageData.id)
+                await fetchDiscourse(passageData.id)
+                
+                // Also fetch participants and relations
+                const { bhsaAPI } = await import('../../services/api')
+                const participants = await bhsaAPI.getParticipants(passageData.id)
+                const relations = await bhsaAPI.getRelations(passageData.id)
+                
+                // Create snapshot for metrics
+                try {
+                    const snapshotResponse = await metricsAPI.createSnapshot(passageData.id, { participants, relations })
+                    setAiSnapshot({ participants, relations }, snapshotResponse.snapshotId)
+                } catch (snapErr) {
+                    console.warn('Failed to create AI snapshot:', snapErr)
+                }
             }
 
             setStatus('success')
@@ -80,15 +163,18 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                 onClose()
                 setStatus('idle')
                 setCurrentStep(0)
+                setStepProgress({})
             }, 1500)
 
         } catch (err: any) {
             console.error('AI Analysis failed:', err)
-            setError(err.response?.data?.detail || 'AI Analysis failed. Please try again.')
+            setError(err.message || 'AI Analysis failed. Please try again.')
             setStatus('idle')
             setCurrentStep(0)
+            setStepProgress({})
         } finally {
             setLoading(false)
+            eventSourceRef.current = null
         }
     }
 
@@ -129,6 +215,8 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                                 const Icon = step.icon
                                 const isActive = i === currentStep
                                 const isComplete = i < currentStep
+                                const progress = stepProgress[i]
+                                const showProgress = progress && progress.total > 0
 
                                 return (
                                     <div
@@ -148,11 +236,30 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                                                 <Icon className="w-4 h-4" />
                                             )}
                                         </div>
-                                        <span className={`text-sm font-medium ${isActive ? 'text-telha' :
-                                            isComplete ? 'text-verde-claro' : 'text-verde/50'
-                                            }`}>
-                                            {step.label}
-                                        </span>
+                                        <div className="flex-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className={`text-sm font-medium ${isActive ? 'text-telha' :
+                                                    isComplete ? 'text-verde-claro' : 'text-verde/50'
+                                                    }`}>
+                                                    {step.label}
+                                                </span>
+                                                {showProgress && (
+                                                    <span className={`text-xs font-mono ${isActive ? 'text-telha' : 'text-verde-claro'}`}>
+                                                        {progress.current}/{progress.total}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {showProgress && (isActive || isComplete) && (
+                                                <div className="mt-1.5">
+                                                    <div className="h-1.5 bg-areia/30 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className={`h-full rounded-full transition-all duration-200 ${isComplete ? 'bg-verde-claro' : 'bg-telha'}`}
+                                                            style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )
                             })}
