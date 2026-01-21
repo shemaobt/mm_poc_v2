@@ -53,6 +53,10 @@ interface PassageStore {
     isStageFullyValidated: (stage: keyof ValidationState, ids: string[]) => boolean
     getValidationCount: (stage: keyof ValidationState) => number
     clearValidation: () => void
+    
+    // Data fetching actions
+    fetchEvents: (passageId: string) => Promise<void>
+    fetchDiscourse: (passageId: string) => Promise<void>
 }
 
 import { persist } from 'zustand/middleware'
@@ -161,7 +165,28 @@ export const usePassageStore = create<PassageStore>()(
                     events: new Set<string>(),
                     discourse: new Set<string>(),
                 }
-            })
+            }),
+            
+            // Data fetching
+            fetchEvents: async (passageId: string) => {
+                try {
+                    const { bhsaAPI } = await import('../services/api')
+                    const events = await bhsaAPI.getEvents(passageId)
+                    set({ events })
+                } catch (err) {
+                    console.error('Failed to fetch events:', err)
+                }
+            },
+            
+            fetchDiscourse: async (passageId: string) => {
+                try {
+                    const { bhsaAPI } = await import('../services/api')
+                    const discourse = await bhsaAPI.getDiscourse(passageId)
+                    set({ discourse })
+                } catch (err) {
+                    console.error('Failed to fetch discourse:', err)
+                }
+            }
         }),
         {
             name: 'passage-storage',
