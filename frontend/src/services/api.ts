@@ -147,6 +147,10 @@ export const bhsaAPI = {
         const response = await apiClient.put(`/api/events/${id}`, data)
         return response.data
     },
+    patchEvent: async (id: string, delta: any) => {
+        const response = await apiClient.patch(`/api/events/${id}`, delta)
+        return response.data
+    },
     deleteEvent: async (id: string) => {
         const response = await apiClient.delete(`/api/events/${id}`)
         return response.data
