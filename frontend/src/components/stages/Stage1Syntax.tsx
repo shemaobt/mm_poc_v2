@@ -170,7 +170,7 @@ function Stage1Syntax() {
                     }
                 }, 30000)
                 
-                // Auto-fetch the passage data if not already loaded
+                // Auto-fetch the passage data if not already loaded or different
                 if (!passageData || passageData.reference !== myLock.pericopeRef) {
                     toast.info('Restoring your session', {
                         description: `You were working on ${myLock.pericopeRef}`
@@ -197,6 +197,15 @@ function Stage1Syntax() {
                         setLoadingMessage('')
                     }
                 }
+                // If passageData matches the lock, keep it (already have correct data)
+            } else {
+                // NO active lock - clear any stale persisted passage data
+                // User must explicitly choose and fetch a new pericope
+                if (passageData) {
+                    clearPassage()
+                }
+                setIsPreviewMode(false)
+                setPreviewData(null)
             }
         } catch (err) {
             console.error('Failed to check user locks:', err)
