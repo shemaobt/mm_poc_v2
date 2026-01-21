@@ -4,6 +4,7 @@ Business logic for managing participants
 Functional approach using pure functions and immutable data structures
 """
 from typing import List, Optional, Dict, Any
+from prisma import Json
 from app.core.database import db
 from app.models.schemas import ParticipantCreate, ParticipantResponse
 
@@ -16,14 +17,14 @@ def build_participant_create_data(data: ParticipantCreate, passage_id: str) -> D
     Pure function to transform creation data into DB format
     """
     return {
-        "passageId": passage_id,
+        "passage": {"connect": {"id": passage_id}},
         "participantId": data.participantId,
         "hebrew": data.hebrew,
         "gloss": data.gloss,
         "type": data.type,
         "quantity": data.quantity,
         "referenceStatus": data.referenceStatus,
-        "properties": [p.dict() for p in data.properties] if data.properties else []
+        "properties": Json([p.dict() for p in data.properties] if data.properties else [])
     }
 
 def build_participant_update_data(data: ParticipantCreate) -> Dict[str, Any]:
@@ -39,7 +40,7 @@ def build_participant_update_data(data: ParticipantCreate) -> Dict[str, Any]:
     }
     
     if data.properties is not None:
-        update_dict["properties"] = [p.dict() for p in data.properties]
+        update_dict["properties"] = Json([p.dict() for p in data.properties])
         
     return update_dict
 
@@ -53,10 +54,20 @@ class ParticipantService:
     async def get_by_passage(passage_id: str) -> List[Dict]:
         """Get all participants for a passage"""
         participants = await db.participant.find_many(
-            where={"passageId": passage_id},
-            order={"participantId": "asc"}
+            where={"passageId": passage_id}
         )
-        return participants
+        
+        # Natural sort by numeric part of participantId (p1, p2, ... p10)
+        def natural_sort_key(p):
+            # Tuple sort: (priority, value)
+            # Priority 0: p<number> (sorted by number)
+            # Priority 1: everything else (sorted lexicographically)
+            s = p.participantId
+            if s.startswith('p') and s[1:].isdigit():
+                return (0, int(s[1:]))
+            return (1, s)
+
+        return sorted(participants, key=natural_sort_key)
 
     @staticmethod
     async def create(passage_id: str, data: ParticipantCreate) -> Dict:
