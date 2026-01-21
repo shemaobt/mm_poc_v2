@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
-import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter, Check, Lock, User } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog'
+import { CheckCircle2, Search, Sparkles, BookOpen, Loader2, FileText, AlertTriangle, ChevronDown, Filter, Check, Lock, User, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ExistingPassage {
@@ -32,14 +33,18 @@ const hasPartialVerseIndicator = (reference: string): boolean => {
 }
 
 function Stage1Syntax() {
-    const { passageData, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError, clearPassage } = usePassageStore()
+    const { 
+        passageData, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError, 
+        clearPassage, discardSession,
+        checkedClauses, setCheckedClauses, toggleClauseCheck
+    } = usePassageStore()
     const [reference, setReference] = useState('')
     const [loadingMessage, setLoadingMessage] = useState('')
     const [showAIModal, setShowAIModal] = useState(false)
+    const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
     const [existingPassages, setExistingPassages] = useState<ExistingPassage[]>([])
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
     const [translating, setTranslating] = useState(false)
-    const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
     const { isAdmin, user } = useAuth()
 
     // Lock state
@@ -454,16 +459,6 @@ function Stage1Syntax() {
         }
     }
 
-    const toggleClauseCheck = (clauseId: string) => {
-        const newSet = new Set(checkedClauses)
-        if (newSet.has(clauseId)) {
-            newSet.delete(clauseId)
-        } else {
-            newSet.add(clauseId)
-        }
-        setCheckedClauses(newSet)
-    }
-
     const allClausesChecked = passageData?.clauses ? passageData.clauses.every((c: any) => checkedClauses.has(c.clause_id?.toString() || c.id?.toString())) : false
 
     const mainlineClauses = passageData?.clauses?.filter(c => c.is_mainline) || []
@@ -711,6 +706,15 @@ function Stage1Syntax() {
                             </CardDescription>
                         </div>
                         <div className="flex gap-2">
+                            <Button
+                                onClick={() => setShowDiscardConfirm(true)}
+                                variant="outline"
+                                className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                                title="Discard current session and start fresh"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Discard Session
+                            </Button>
                             {isAdmin && (
                                 <Button
                                     onClick={() => {
@@ -809,6 +813,52 @@ function Stage1Syntax() {
                 isOpen={showAIModal}
                 onClose={() => setShowAIModal(false)}
             />
+
+            {/* Discard Session Confirmation Dialog */}
+            <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-600">
+                            <Trash2 className="w-5 h-5" />
+                            Discard Session
+                        </DialogTitle>
+                        <DialogDescription>
+                            This will clear your current work session and return you to the passage selection.
+                            <br /><br />
+                            <strong>Note:</strong> Data already saved to the database will not be deleted. 
+                            You can reload the same passage to continue working on it.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button 
+                            variant="outline" 
+                            onClick={() => setShowDiscardConfirm(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            variant="destructive"
+                            onClick={() => {
+                                // Release lock if held
+                                if (currentLock) {
+                                    releaseLock()
+                                }
+                                // Discard session (clears state and localStorage, including checkedClauses)
+                                discardSession()
+                                setShowDiscardConfirm(false)
+                                setReference('')
+                                toast.success('Session discarded', {
+                                    description: 'You can now start a new analysis'
+                                })
+                            }}
+                            className="gap-2"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Discard
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
