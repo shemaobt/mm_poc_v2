@@ -31,6 +31,18 @@ async def create_relation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/relations/{relation_id}", response_model=RelationResponse)
+async def update_relation(
+    relation_id: str = Path(...),
+    data: RelationCreate = ...,
+):
+    """Update relation"""
+    try:
+        return await RelationService.update(relation_id, data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/relations/{id}")
 async def delete_relation(id: str = Path(...)):
     """Delete relation"""

@@ -31,6 +31,18 @@ async def create_discourse(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/discourse/{relation_id}", response_model=DiscourseRelationResponse)
+async def update_discourse(
+    relation_id: str = Path(...),
+    data: DiscourseRelationCreate = ...,
+):
+    """Update discourse relation"""
+    try:
+        return await DiscourseService.update(relation_id, data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/discourse/{id}")
 async def delete_discourse(id: str = Path(...)):
     """Delete discourse relation"""

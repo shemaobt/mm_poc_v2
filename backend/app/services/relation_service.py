@@ -57,6 +57,28 @@ class RelationService:
         return relation
 
     @staticmethod
+    async def update(id: str, data: RelationCreate) -> Dict:
+        """Update a relation"""
+        # We only update fields, not the passageId (for safety)
+        # Note: sourceId and targetId changing might require re-linking logic if strictly relational,
+        # but here we just update fields since they are IDs.
+
+        relation = await db.participantrelation.update(
+            where={"id": id},
+            data={
+                "category": data.category,
+                "type": data.type,
+                "sourceId": data.sourceId,
+                "targetId": data.targetId
+            },
+            include={
+                "source": True,
+                "target": True
+            }
+        )
+        return relation
+
+    @staticmethod
     async def delete(id: str) -> Dict:
         """Delete a relation"""
         return await db.participantrelation.delete(

@@ -93,6 +93,8 @@ class RelationResponse(RelationBase):
     """Relation response"""
     id: str
     passageId: str
+    source: Optional[ParticipantResponse] = None
+    target: Optional[ParticipantResponse] = None
 
     class Config:
         from_attributes = True
