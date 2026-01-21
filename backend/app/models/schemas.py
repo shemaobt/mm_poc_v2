@@ -230,15 +230,36 @@ class EventResponse(EventBase):
         from_attributes = True
 
 
+class EventPatch(BaseModel):
+    """Partial event update - all fields optional for delta updates"""
+    eventId: Optional[str] = None
+    clauseId: Optional[str] = None
+    category: Optional[str] = None
+    eventCore: Optional[str] = None
+    discourseFunction: Optional[str] = None
+    chainPosition: Optional[str] = None
+    narrativeFunction: Optional[str] = None
+    roles: Optional[List[EventRoleBase]] = None
+    modifiers: Optional[EventModifierBase] = None
+    speechAct: Optional[SpeechActBase] = None
+    pragmatic: Optional[EventPragmaticBase] = None
+    emotions: Optional[List[EventEmotionBase]] = None
+    narratorStance: Optional[NarratorStanceBase] = None
+    audienceResponse: Optional[AudienceResponseBase] = None
+    laRetrieval: Optional[LARetrievalBase] = None
+    figurative: Optional[FigurativeBase] = None
+    keyTerms: Optional[List[KeyTermBase]] = None
+
+
 # ============================================================
 # DISCOURSE MODELS
 # ============================================================
 
 class DiscourseRelationBase(BaseModel):
     """Base discourse relation"""
-    relationType: str
-    sourceId: str
-    targetId: str
+    relationType: Optional[str] = None
+    sourceId: Optional[str] = None
+    targetId: Optional[str] = None
 
 class DiscourseRelationCreate(DiscourseRelationBase):
     """Create discourse relation"""

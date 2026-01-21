@@ -4,7 +4,7 @@ Events API Router
 from typing import List
 from fastapi import APIRouter, HTTPException, Path
 
-from app.models.schemas import EventCreate, EventResponse
+from app.models.schemas import EventCreate, EventResponse, EventPatch
 from app.services.event_service import EventService
 
 router = APIRouter()
@@ -37,9 +37,21 @@ async def update_event(
     data: EventCreate,
     id: str = Path(...)
 ):
-    """Update event"""
+    """Update event (full update)"""
     try:
         return await EventService.update(id, data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/events/{id}", response_model=EventResponse)
+async def patch_event(
+    data: EventPatch,
+    id: str = Path(...)
+):
+    """Partial update event (delta only)"""
+    try:
+        return await EventService.patch(id, data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
