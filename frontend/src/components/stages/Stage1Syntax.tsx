@@ -54,7 +54,6 @@ function Stage1Syntax() {
     const [showDiscardConfirm, setShowDiscardConfirm] = useState(false)
     const [existingPassages, setExistingPassages] = useState<ExistingPassage[]>([])
     const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null)
-    const [checkedClauses, setCheckedClauses] = useState<Set<string>>(new Set()) // Track checked clause IDs
     const { isAdmin, user } = useAuth()
 
     // Lock state
@@ -503,16 +502,6 @@ function Stage1Syntax() {
 
     // Note: Auto-translation is handled by the backend during passage fetch
     // No need for frontend auto-translate - it causes duplicate API calls
-
-    const toggleClauseCheck = (clauseId: string) => {
-        const newSet = new Set(checkedClauses)
-        if (newSet.has(clauseId)) {
-            newSet.delete(clauseId)
-        } else {
-            newSet.add(clauseId)
-        }
-        setCheckedClauses(newSet)
-    }
 
     const allClausesChecked = passageData?.clauses ? passageData.clauses.every((c: any) => checkedClauses.has(c.clause_id?.toString() || c.id?.toString())) : false
 
