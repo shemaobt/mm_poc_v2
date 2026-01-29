@@ -2,20 +2,33 @@ import { useState, useEffect } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
-import { RelationCreate } from '../../types'
+import { RelationCreate, RelationResponse } from '../../types'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { GitBranch, ArrowRight, Plus, Trash2, Loader2, Check, CheckCircle2, Pencil } from 'lucide-react'
+import { CreatableSelect } from '../ui/creatable-select'
 
-const RELATION_CATEGORIES = ['kinship', 'social', 'possession', 'part_whole', 'origin', 'spatial', 'temporal', 'logical', 'comparison']
+// Fallback options
+const RELATION_CATEGORIES_FALLBACK = [
+    { value: 'kinship', label: 'Kinship' },
+    { value: 'social', label: 'Social' },
+    { value: 'possession', label: 'Possession' },
+    { value: 'part_whole', label: 'Part/Whole' },
+    { value: 'origin', label: 'Origin' },
+    { value: 'spatial', label: 'Spatial' },
+    { value: 'temporal', label: 'Temporal' },
+    { value: 'logical', label: 'Logical' },
+    { value: 'comparison', label: 'Comparison' },
+]
 
 function Stage3Relations() {
     const {
         passageData,
         participants,
+        readOnly,
         relations,
         setRelations,
         loading,
@@ -74,6 +87,7 @@ function Stage3Relations() {
     }
 
     const handleEdit = (rel: any) => {
+        if (readOnly) return
         setFormData({
             category: rel.category,
             type: rel.type,
@@ -87,11 +101,22 @@ function Stage3Relations() {
         e.preventDefault()
         if (!passageData?.id) return
 
+        if (!formData.sourceId || !formData.targetId) {
+            setError('Please select both source and target participants.')
+            return
+        }
+        setError(null)
+
         try {
             setLoading(true)
             if (editingId) {
                 const updated = await bhsaAPI.updateRelation(editingId, formData)
-                setRelations(relations.map(r => r.id === editingId ? updated : r))
+                const idToUpdate = editingId
+                setRelations((prev: RelationResponse[]) => {
+                    const prevItem = prev.find((r: RelationResponse) => r.id === idToUpdate)
+                    const merged = prevItem ? { ...prevItem, ...updated } : updated
+                    return prev.map((r: RelationResponse) => (r.id === idToUpdate ? merged : r))
+                })
 
                 // Track update
                 if (aiSnapshot) {
@@ -106,7 +131,7 @@ function Stage3Relations() {
                 }
             } else {
                 const created = await bhsaAPI.createRelation(passageData.id, formData)
-                setRelations([...relations, created])
+                setRelations((prev: RelationResponse[]) => [...prev, created])
 
                 // Track creation
                 if (aiSnapshot) {
@@ -129,7 +154,7 @@ function Stage3Relations() {
         try {
             setLoading(true)
             await bhsaAPI.deleteRelation(id)
-            setRelations(relations.filter(r => r.id !== id))
+            setRelations((prev: RelationResponse[]) => prev.filter((r: RelationResponse) => r.id !== id))
 
             // Track deletion
             if (aiSnapshot) {
@@ -210,7 +235,7 @@ function Stage3Relations() {
                                     </span>
                                     {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                                 </div>
-                                {isAdmin && (
+                                {!readOnly && isAdmin && (
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -230,21 +255,23 @@ function Stage3Relations() {
                                 >
                                     <CardContent className="p-4">
                                         <div className="flex items-center justify-between">
-                                            {/* Validation checkbox */}
-                                            <button
-                                                onClick={() => toggleValidation('relations', r.id)}
-                                                className={`flex items-center gap-2 px-2 py-1 rounded transition-all mr-4 ${isValidated(r.id)
-                                                    ? 'bg-verde-claro/20 text-verde-claro'
-                                                    : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                                    }`}
-                                            >
-                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(r.id)
-                                                    ? 'border-verde-claro bg-verde-claro'
-                                                    : 'border-areia'
-                                                    }`}>
-                                                    {isValidated(r.id) && <Check className="w-3 h-3 text-white" />}
-                                                </div>
-                                            </button>
+                                            {/* Validation checkbox - hidden in read-only */}
+                                            {!readOnly && (
+                                                <button
+                                                    onClick={() => toggleValidation('relations', r.id)}
+                                                    className={`flex items-center gap-2 px-2 py-1 rounded transition-all mr-4 ${isValidated(r.id)
+                                                        ? 'bg-verde-claro/20 text-verde-claro'
+                                                        : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                                        }`}
+                                                >
+                                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(r.id)
+                                                        ? 'border-verde-claro bg-verde-claro'
+                                                        : 'border-areia'
+                                                        }`}>
+                                                        {isValidated(r.id) && <Check className="w-3 h-3 text-white" />}
+                                                    </div>
+                                                </button>
+                                            )}
 
                                             <div className="flex items-center gap-4 flex-1">
                                                 <div className="font-medium text-preto">
@@ -262,23 +289,25 @@ function Stage3Relations() {
                                                     {getParticipantDisplay(r.targetId, r.target)}
                                                 </div>
                                             </div>
-                                            <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => handleEdit(r)}
-                                                >
-                                                    <Pencil className="w-4 h-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-red-500 hover:text-red-600"
-                                                    onClick={() => r.id && handleDelete(r.id)}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
-                                            </div>
+                                            {!readOnly && (
+                                                <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleEdit(r)}
+                                                    >
+                                                        <Pencil className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-red-500 hover:text-red-600"
+                                                        onClick={() => r.id && handleDelete(r.id)}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -287,7 +316,8 @@ function Stage3Relations() {
                     )}
                 </div>
 
-                {/* Add relation form */}
+                {/* Add relation form - hidden in read-only */}
+                {!readOnly && (
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -299,12 +329,12 @@ function Stage3Relations() {
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Source Participant</label>
-                                <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__clear__' ? '' : v })}>
+                                <Select value={formData.sourceId || '__na__'} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__na__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Source..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                        <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                         {[...participants].sort((a, b) => {
                                             const getNum = (id: string) => {
                                                 const match = id.match(/^p(\d+)$/);
@@ -323,12 +353,12 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Target Participant</label>
-                                <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__clear__' ? '' : v })}>
+                                <Select value={formData.targetId || '__na__'} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__na__' ? '' : v })}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select Target..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                        <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                         {[...participants].sort((a, b) => {
                                             const getNum = (id: string) => {
                                                 const match = id.match(/^p(\d+)$/);
@@ -347,17 +377,13 @@ function Stage3Relations() {
 
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Category</label>
-                                <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v === '__clear__' ? '' : v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
-                                        {RELATION_CATEGORIES.map(c => (
-                                            <SelectItem key={c} value={c}>{c}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <CreatableSelect
+                                    category="relation_category"
+                                    value={formData.category}
+                                    onValueChange={(v) => setFormData({ ...formData, category: v })}
+                                    placeholder="Select category..."
+                                    fallbackOptions={RELATION_CATEGORIES_FALLBACK}
+                                />
                             </div>
 
                             <div>
@@ -383,6 +409,7 @@ function Stage3Relations() {
                         </form>
                     </CardContent>
                 </Card>
+                )}
             </div>
         </div>
     )

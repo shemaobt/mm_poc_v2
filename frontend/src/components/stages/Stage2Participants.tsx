@@ -7,52 +7,51 @@ import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Badge } from '../ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog'
 import { Users, Plus, Pencil, Trash2, Loader2, Check, CheckCircle2 } from 'lucide-react'
+import { CreatableSelect } from '../ui/creatable-select'
 
-// Extended to include AI-generated variations
-const PARTICIPANT_TYPES = [
-    'person', 'group', 'divine', 'animal', 'plant', 'object', 'place', 'abstract', 'time', 'event',
-    // Extended types the AI may generate
-    'collective_human', 'collective', 'human', 'thing', 'stuff', 'time_entity', 'idea', 'location',
-    'deity', 'entity', 'concept', 'material', 'substance', 'structure', 'building'
+// Fallback options (used while loading or if API fails)
+const PARTICIPANT_TYPES_FALLBACK = [
+    { value: 'person', label: 'Person' },
+    { value: 'group', label: 'Group' },
+    { value: 'divine', label: 'Divine' },
+    { value: 'animal', label: 'Animal' },
+    { value: 'place', label: 'Place' },
+    { value: 'object', label: 'Object' },
+    { value: 'abstract', label: 'Abstract' },
 ]
-const QUANTITIES = [
-    'one', 'two', 'few', 'many', 'all', 'mass', 'unknown',
-    // Extended quantities the AI may generate
-    'unified_set', 'collective', 'dual', 'plural', 'singular', 'pair', 'multiple', 'some', 'none'
+const QUANTITIES_FALLBACK = [
+    { value: 'one', label: 'One' },
+    { value: 'two', label: 'Two' },
+    { value: 'few', label: 'Few' },
+    { value: 'many', label: 'Many' },
+    { value: 'all', label: 'All' },
+    { value: 'mass', label: 'Mass' },
+    { value: 'unknown', label: 'Unknown' },
 ]
-const REFERENCE_STATUS = [
-    'new_mention', 'known', 'pointed', 'kind',
-    // Extended statuses the AI may generate (including short forms)
-    'new', 'old', 'given', 'accessible', 'inferrable', 'brand_new', 'unused', 'active', 'semi_active'
+const REFERENCE_STATUS_FALLBACK = [
+    { value: 'new_mention', label: 'New Mention' },
+    { value: 'known', label: 'Known' },
+    { value: 'pointed', label: 'Pointed' },
+    { value: 'kind', label: 'Kind' },
 ]
-const PROPERTY_DIMENSIONS: Record<string, string[]> = {
-    "color": ["red", "blue", "green", "yellow", "black", "white", "brown", "golden", "purple", "gray", "scarlet", "crimson"],
-    "size": ["big", "small", "tall", "short", "long", "wide", "narrow", "thick", "thin", "huge", "tiny"],
-    "age": ["old", "young", "new", "ancient", "fresh"],
-    "condition": ["wet", "dry", "clean", "dirty", "broken", "whole", "ripe", "rotten", "alive", "dead", "healthy", "sick", "injured", "tired", "empty", "full"],
-    "value": ["good", "bad", "beautiful", "ugly", "holy", "unclean", "righteous", "wicked", "precious", "worthless", "pure", "impure"],
-    "character": ["wise", "foolish", "kind", "cruel", "brave", "cowardly", "faithful", "treacherous", "humble", "proud", "honest", "generous", "selfish", "patient", "just"],
-    "social_status": ["rich", "poor", "powerful", "weak", "honored", "despised", "noble", "common", "free", "slave"],
-    "physical_state": ["strong", "weak", "beautiful", "plain", "blind", "deaf", "lame", "barren", "fertile"],
-    "emotional_state": ["happy", "sad", "angry", "afraid", "peaceful", "anxious", "hopeful", "despairing"],
-    "shape": [],
-    // Extended dimensions for AI-generated properties
-    "unity": ["unified", "divided", "scattered", "one", "many"],
-    "language": ["one_language", "many_languages", "same_language", "different_languages"],
-    "function": ["communication", "speech_content", "material", "structural", "ceremonial", "religious"],
-    "terrain": ["flat_plain", "mountain", "valley", "river", "desert", "plain", "hill", "coastal"],
-    "region": ["Mesopotamia", "Canaan", "Egypt", "Babylon", "Shinar", "Assyria", "Persia"],
-    "direction": ["east", "west", "north", "south", "up", "down"],
-    "material": ["stone", "brick", "clay", "wood", "metal", "gold", "silver", "bronze", "iron"],
-    "purpose": ["dwelling", "worship", "defense", "storage", "monument"]
-}
+const PROPERTY_DIMENSIONS_FALLBACK = [
+    { value: 'color', label: 'Color' },
+    { value: 'size', label: 'Size' },
+    { value: 'age', label: 'Age' },
+    { value: 'condition', label: 'Condition' },
+    { value: 'value', label: 'Value' },
+    { value: 'character', label: 'Character' },
+    { value: 'social_status', label: 'Social Status' },
+    { value: 'physical_state', label: 'Physical State' },
+    { value: 'emotional_state', label: 'Emotional State' },
+]
 
 function Stage2Participants() {
     const {
         passageData,
+        readOnly,
         participants,
         setParticipants,
         loading,
@@ -126,17 +125,19 @@ function Stage2Participants() {
     const handleCreate = () => {
         resetForm()
         setFormData(prev => ({ ...prev, participantId: `p${participants.length + 1}` }))
+        if (readOnly) return
         setShowModal(true)
     }
 
     const handleEdit = (p: ParticipantResponse) => {
+        if (readOnly) return
         setFormData({
             participantId: p.participantId,
             hebrew: p.hebrew,
             gloss: p.gloss,
-            type: p.type,
-            quantity: p.quantity || 'one',
-            referenceStatus: p.referenceStatus || 'new_mention',
+            type: p.type ?? '',
+            quantity: p.quantity ?? '',
+            referenceStatus: p.referenceStatus ?? '',
             properties: p.properties || []
         })
         setEditingId(p.id)
@@ -167,13 +168,19 @@ function Stage2Participants() {
         try {
             setLoading(true)
             if (editingId) {
-                // Get original for comparison
+                // Get original for comparison (from closure; tracking uses it)
                 const original = participants.find(p => p.id === editingId)
 
                 // Save to DB
                 console.log('Sending update:', formData)
                 const updated = await bhsaAPI.updateParticipant(editingId, formData)
-                setParticipants(participants.map(p => p.id === editingId ? updated : p))
+                // Functional update + merge so fields not returned by API are preserved
+                const idToUpdate = editingId
+                setParticipants((prev: ParticipantResponse[]) => {
+                    const prevItem = prev.find((p: ParticipantResponse) => p.id === idToUpdate)
+                    const merged = prevItem ? { ...prevItem, ...updated } : updated
+                    return prev.map((p: ParticipantResponse) => (p.id === idToUpdate ? merged : p))
+                })
 
                 // Track changes if AI snapshot exists
                 if (aiSnapshot && original) {
@@ -190,7 +197,7 @@ function Stage2Participants() {
                 }
             } else {
                 const created = await bhsaAPI.createParticipant(passageData.id, formData)
-                setParticipants([...participants, created])
+                setParticipants((prev: ParticipantResponse[]) => [...prev, created])
 
                 // Track creation (not AI generated)
                 if (aiSnapshot) {
@@ -213,7 +220,7 @@ function Stage2Participants() {
         try {
             setLoading(true)
             await bhsaAPI.deleteParticipant(id)
-            setParticipants(participants.filter(p => p.id !== id))
+            setParticipants((prev: ParticipantResponse[]) => prev.filter((p: ParticipantResponse) => p.id !== id))
 
             // Track deletion
             if (aiSnapshot) {
@@ -264,10 +271,12 @@ function Stage2Participants() {
                     </h2>
                     <p className="text-verde mt-1">Identify and classify entities in the text.</p>
                 </div>
-                <Button onClick={handleCreate} className="gap-2">
-                    <Plus className="w-4 h-4" />
-                    Add Participant
-                </Button>
+                {!readOnly && (
+                    <Button onClick={handleCreate} className="gap-2">
+                        <Plus className="w-4 h-4" />
+                        Add Participant
+                    </Button>
+                )}
             </div>
 
             {error && (
@@ -286,7 +295,7 @@ function Stage2Participants() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    {isAdmin && (
+                    {!readOnly && isAdmin && (
                         <Button
                             variant="outline"
                             size="sm"
@@ -322,31 +331,33 @@ function Stage2Participants() {
                         className={`group transition-all ${isValidated(p.id) ? 'border-verde-claro/50 bg-verde-claro/5' : 'hover:border-telha/30'}`}
                     >
                         <CardContent className="p-4">
-                            {/* Validation checkbox */}
-                            <div className="flex items-center justify-between mb-3">
-                                <button
-                                    onClick={() => toggleValidation('participants', p.id)}
-                                    className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(p.id)
-                                        ? 'bg-verde-claro/20 text-verde-claro'
-                                        : 'bg-areia/30 text-areia hover:bg-areia/50'
-                                        }`}
-                                >
-                                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(p.id)
-                                        ? 'border-verde-claro bg-verde-claro'
-                                        : 'border-areia'
-                                        }`}>
-                                        {isValidated(p.id) && <Check className="w-3 h-3 text-white" />}
-                                    </div>
-                                    <span className="text-xs font-medium">
-                                        {isValidated(p.id) ? 'Validated' : 'Click to validate'}
-                                    </span>
-                                </button>
-                            </div>
+                            {/* Validation checkbox - hidden in read-only */}
+                            {!readOnly && (
+                                <div className="flex items-center justify-between mb-3">
+                                    <button
+                                        onClick={() => toggleValidation('participants', p.id)}
+                                        className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(p.id)
+                                            ? 'bg-verde-claro/20 text-verde-claro'
+                                            : 'bg-areia/30 text-areia hover:bg-areia/50'
+                                            }`}
+                                    >
+                                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${isValidated(p.id)
+                                            ? 'border-verde-claro bg-verde-claro'
+                                            : 'border-areia'
+                                            }`}>
+                                            {isValidated(p.id) && <Check className="w-3 h-3 text-white" />}
+                                        </div>
+                                        <span className="text-xs font-medium">
+                                            {isValidated(p.id) ? 'Validated' : 'Click to validate'}
+                                        </span>
+                                    </button>
+                                </div>
+                            )}
 
                             <div className="flex items-start justify-between mb-3">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-semibold text-telha">{p.participantId}</span>
-                                    <Badge variant={getTypeBadgeVariant(p.type)}>{p.type}</Badge>
+                                    <Badge variant={getTypeBadgeVariant(p.type)}>{p.type || 'N/A'}</Badge>
                                 </div>
                                 <div className="hebrew-text text-lg">{p.hebrew}</div>
                             </div>
@@ -354,8 +365,8 @@ function Stage2Participants() {
 
                             {/* Tags for details */}
                             <div className="flex flex-wrap gap-1 mb-3">
-                                {p.quantity && <Badge variant="default" className="text-xs border-preto/20">{p.quantity}</Badge>}
-                                {p.referenceStatus && <Badge variant="default" className="text-xs border-preto/20">{p.referenceStatus}</Badge>}
+                                <Badge variant="default" className="text-xs border-preto/20">{p.quantity || 'N/A'}</Badge>
+                                <Badge variant="default" className="text-xs border-preto/20">{p.referenceStatus || 'N/A'}</Badge>
                                 {p.properties?.map((prop, i) => (
                                     <Badge key={i} variant="default" className="text-xs bg-gray-100 text-gray-800 border-gray-200">
                                         {prop.dimension}: {prop.value}
@@ -363,16 +374,18 @@ function Stage2Participants() {
                                 ))}
                             </div>
 
-                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button variant="ghost" size="sm" onClick={() => handleEdit(p)}>
-                                    <Pencil className="w-4 h-4 mr-1" />
-                                    Edit
-                                </Button>
-                                <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => handleDelete(p.id)}>
-                                    <Trash2 className="w-4 h-4 mr-1" />
-                                    Delete
-                                </Button>
-                            </div>
+                            {!readOnly && (
+                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button variant="ghost" size="sm" onClick={() => handleEdit(p)}>
+                                        <Pencil className="w-4 h-4 mr-1" />
+                                        Edit
+                                    </Button>
+                                    <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600" onClick={() => handleDelete(p.id)}>
+                                        <Trash2 className="w-4 h-4 mr-1" />
+                                        Delete
+                                    </Button>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 ))}
@@ -409,17 +422,13 @@ function Stage2Participants() {
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Type</label>
-                                <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v === '__clear__' ? '' : v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
-                                        {PARTICIPANT_TYPES.map(t => (
-                                            <SelectItem key={t} value={t}>{t}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <CreatableSelect
+                                    category="participant_type"
+                                    value={formData.type}
+                                    onValueChange={(v) => setFormData({ ...formData, type: v })}
+                                    placeholder="Select type..."
+                                    fallbackOptions={PARTICIPANT_TYPES_FALLBACK}
+                                />
                             </div>
                         </div>
 
@@ -447,31 +456,23 @@ function Stage2Participants() {
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Quantity</label>
-                                <Select value={formData.quantity} onValueChange={(v) => setFormData({ ...formData, quantity: v === '__clear__' ? '' : v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
-                                        {QUANTITIES.map(q => (
-                                            <SelectItem key={q} value={q}>{q}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <CreatableSelect
+                                    category="quantity"
+                                    value={formData.quantity}
+                                    onValueChange={(v) => setFormData({ ...formData, quantity: v })}
+                                    placeholder="Select quantity..."
+                                    fallbackOptions={QUANTITIES_FALLBACK}
+                                />
                             </div>
                             <div>
                                 <label className="text-sm font-medium text-preto mb-1.5 block">Reference Status</label>
-                                <Select value={formData.referenceStatus} onValueChange={(v) => setFormData({ ...formData, referenceStatus: v === '__clear__' ? '' : v })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
-                                        {REFERENCE_STATUS.map(r => (
-                                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <CreatableSelect
+                                    category="reference_status"
+                                    value={formData.referenceStatus}
+                                    onValueChange={(v) => setFormData({ ...formData, referenceStatus: v })}
+                                    placeholder="Select status..."
+                                    fallbackOptions={REFERENCE_STATUS_FALLBACK}
+                                />
                             </div>
                         </div>
 
@@ -498,29 +499,27 @@ function Stage2Participants() {
                             <div className="flex gap-2 items-end">
                                 <div className="w-1/3">
                                     <label className="text-xs font-medium text-gray-500 mb-1 block">Dimension</label>
-                                    <Select value={newPropDimension} onValueChange={(v) => { setNewPropDimension(v); setNewPropValue('') }}>
-                                        <SelectTrigger className="h-8">
-                                            <SelectValue placeholder="Select..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {Object.keys(PROPERTY_DIMENSIONS).map(d => (
-                                                <SelectItem key={d} value={d}>{d}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <CreatableSelect
+                                        category="property_dimension"
+                                        value={newPropDimension}
+                                        onValueChange={(v) => { setNewPropDimension(v); setNewPropValue('') }}
+                                        placeholder="Select..."
+                                        includeNA={false}
+                                        fallbackOptions={PROPERTY_DIMENSIONS_FALLBACK}
+                                        className="h-8"
+                                    />
                                 </div>
                                 <div className="w-1/3">
                                     <label className="text-xs font-medium text-gray-500 mb-1 block">Value</label>
-                                    <Select value={newPropValue} onValueChange={setNewPropValue} disabled={!newPropDimension}>
-                                        <SelectTrigger className="h-8">
-                                            <SelectValue placeholder="Select..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {newPropDimension && PROPERTY_DIMENSIONS[newPropDimension]?.map(v => (
-                                                <SelectItem key={v} value={v}>{v}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <CreatableSelect
+                                        category={newPropDimension ? `property_${newPropDimension}` : 'property_color'}
+                                        value={newPropValue}
+                                        onValueChange={setNewPropValue}
+                                        placeholder="Select..."
+                                        includeNA={false}
+                                        disabled={!newPropDimension}
+                                        className="h-8"
+                                    />
                                 </div>
                                 <Button size="sm" variant="secondary" onClick={addProperty} disabled={!newPropDimension || !newPropValue} className="h-8">
                                     <Plus className="w-4 h-4" />

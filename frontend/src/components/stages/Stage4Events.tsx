@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
 import { bhsaAPI, passagesAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog'
 import { Zap, Plus, Pencil, Trash2, Loader2, User, ChevronDown, ChevronRight, Check, CheckCircle2 } from 'lucide-react'
 import { Badge } from '../ui/badge'
+import { CreatableSelect } from '../ui/creatable-select'
 import {
     EVENT_CATEGORIES,
     SEMANTIC_ROLES,
@@ -144,14 +145,15 @@ function CollapsibleSection({
     )
 }
 
-// Helper to render a select field
+// Helper to render a select field - optionally uses CreatableSelect when category is provided
 function SelectField({
     label,
     value,
     options,
     onChange,
     placeholder = "Select...",
-    clearable = true
+    clearable = true,
+    category
 }: {
     label: string
     value?: string
@@ -159,17 +161,36 @@ function SelectField({
     onChange: (value: string) => void
     placeholder?: string
     clearable?: boolean
+    category?: string // If provided, uses CreatableSelect with dynamic options from backend
 }) {
+    // Use CreatableSelect when category is provided (enables dynamic option creation)
+    if (category) {
+        return (
+            <div>
+                <label className="text-sm font-medium text-preto mb-1.5 block">{label}</label>
+                <CreatableSelect
+                    category={category}
+                    value={value}
+                    onValueChange={onChange}
+                    placeholder={placeholder}
+                    includeNA={clearable}
+                    fallbackOptions={options}
+                />
+            </div>
+        )
+    }
+
+    // Default: use regular Select with static options
     return (
         <div>
             <label className="text-sm font-medium text-preto mb-1.5 block">{label}</label>
-            <Select value={value || ''} onValueChange={(v) => onChange(v === '__clear__' ? '' : v)}>
+            <Select value={value || '__na__'} onValueChange={(v) => onChange(v === '__na__' ? '' : v)}>
                 <SelectTrigger>
                     <SelectValue placeholder={placeholder} />
                 </SelectTrigger>
                 <SelectContent>
                     {clearable && (
-                        <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                        <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                     )}
                     {options.map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
@@ -185,6 +206,7 @@ function Stage4Events() {
     const {
         passageData,
         events,
+        readOnly,
         setEvents,
         participants,
         loading,
@@ -239,12 +261,42 @@ function Stage4Events() {
         try {
             const passage = await passagesAPI.get(passageId)
             if (passage?.clauses) {
-                setDbClauses(passage.clauses)
+                setDbClauses(passage.clauses.sort((a: any, b: any) => {
+                    const idxA = typeof a.clauseIndex === 'number' ? a.clauseIndex : 0
+                    const idxB = typeof b.clauseIndex === 'number' ? b.clauseIndex : 0
+                    return idxA - idxB
+                }))
             }
         } catch (err: any) {
             console.error('Failed to fetch DB clauses:', err)
         }
     }
+
+    // Segment options for "Associated Segment" dropdown: use display units (grouped) when available, else raw clauses
+    const segmentOptions = useMemo(() => {
+        if (!dbClauses.length) return []
+        const units = passageData?.display_units
+        if (units?.length && units.every((u: any) => u?.clause_ids?.length)) {
+            return units.map((u: any) => {
+                const ids = u.clause_ids as number[]
+                const firstClauseIndex = ids[0] - 1
+                const firstClause = dbClauses.find((c: any) => (c.clauseIndex === firstClauseIndex))
+                const firstDbId = firstClause?.id
+                const clauseTexts = dbClauses
+                    .filter((c: any) => ids.includes((c.clauseIndex ?? 0) + 1))
+                    .map((c: any) => c.text)
+                const label =
+                    ids.length > 1
+                        ? `${ids[0]}-${ids[ids.length - 1]}: ${clauseTexts.join(' ')}`
+                        : `${ids[0]}: ${clauseTexts[0] || ''}`
+                return { value: firstDbId, label }
+            }).filter((o: { value: string }) => o.value)
+        }
+        return dbClauses.map((c: any) => ({
+            value: c.id,
+            label: `${(typeof c.clauseIndex === 'number' ? c.clauseIndex + 1 : c.clauseIndex)}: ${c.text}`,
+        }))
+    }, [dbClauses, passageData?.display_units])
 
     const fetchEvents = async (passageId: string) => {
         try {
@@ -279,11 +331,21 @@ function Stage4Events() {
     }
 
     const handleCreate = () => {
+        if (readOnly) return
         resetForm()
         setShowModal(true)
     }
 
     const handleEdit = (ev: EventResponse) => {
+        if (readOnly) return
+        // Normalize role participantIds: API may return UUID (e.g. after PATCH without include); UI Select uses logical id (p1, p2)
+        const roles = (ev.roles || []).map((r) => {
+            if (!r.participantId) return r
+            const byLogical = participants.find((p) => p.participantId === r.participantId)
+            if (byLogical) return r
+            const byId = participants.find((p) => p.id === r.participantId)
+            return byId ? { ...r, participantId: byId.participantId } : r
+        })
         const eventData = {
             eventId: ev.eventId,
             clauseId: ev.clauseId,
@@ -292,7 +354,7 @@ function Stage4Events() {
             discourseFunction: ev.discourseFunction,
             chainPosition: ev.chainPosition,
             narrativeFunction: ev.narrativeFunction,
-            roles: ev.roles || [],
+            roles,
             modifiers: ev.modifiers || {},
             speechAct: ev.speechAct || {},
             pragmatic: ev.pragmatic || {},
@@ -360,8 +422,19 @@ function Stage4Events() {
                     setShowModal(false)
                     return
                 }
-                // Update the events in the store
-                setEvents(events.map(ev => ev.id === editingId ? updated : ev))
+                // Merge PATCH response with previous event so clause linkage is never lost
+                const idToUpdate = editingId
+                setEvents((prevEvents: EventResponse[]) => {
+                    const prev = prevEvents.find((ev: EventResponse) => ev.id === idToUpdate)
+                    const merged = prev
+                        ? {
+                            ...updated,
+                            clauseId: updated.clauseId ?? prev.clauseId,
+                            unitClauseIds: updated.unitClauseIds ?? prev.unitClauseIds,
+                        }
+                        : updated
+                    return prevEvents.map((ev: EventResponse) => (ev.id === idToUpdate ? merged : ev))
+                })
 
                 if (aiSnapshot) {
                     const original = events.find(ev => ev.id === editingId)
@@ -377,7 +450,7 @@ function Stage4Events() {
                 console.log('Creating event:', formData)
                 const created = await bhsaAPI.createEvent(passageData.id, formData)
                 console.log('Event created successfully:', created)
-                setEvents([...events, created])
+                setEvents((prev: EventResponse[]) => [...prev, created])
 
                 if (aiSnapshot) {
                     trackEdit('create', 'event', created.id, undefined, undefined, undefined, false)
@@ -400,7 +473,7 @@ function Stage4Events() {
         try {
             setLoading(true)
             await bhsaAPI.deleteEvent(id)
-            setEvents(events.filter(ev => ev.id !== id))
+            setEvents((prev: EventResponse[]) => prev.filter((ev: EventResponse) => ev.id !== id))
 
             if (aiSnapshot) {
                 const original = events.find(ev => ev.id === id)
@@ -423,7 +496,7 @@ function Stage4Events() {
         })
     }
 
-    const updateRole = (index: number, field: keyof EventRoleBase, value: string) => {
+    const updateRole = (index: number, field: keyof EventRoleBase, value: string | null) => {
         const newRoles = [...formData.roles]
         newRoles[index] = { ...newRoles[index], [field]: value }
         setFormData({ ...formData, roles: newRoles })
@@ -564,10 +637,12 @@ function Stage4Events() {
                     </h2>
                     <p className="text-verde mt-1">Identify events, classify them, and assign participant roles.</p>
                 </div>
+                {!readOnly && (
                 <Button onClick={handleCreate} className="gap-2">
                     <Plus className="w-4 h-4" />
                     Add Event
                 </Button>
+                )}
             </div>
 
             {error && (
@@ -586,7 +661,7 @@ function Stage4Events() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    {isAdmin && (
+                    {!readOnly && isAdmin && (
                         <Button
                             variant="outline"
                             size="sm"
@@ -617,8 +692,9 @@ function Stage4Events() {
                             <CardContent className="p-4">
                                 <div className="flex items-start justify-between">
                                     <div className="flex-1">
-                                        {/* Validation checkbox */}
+                                        {/* Validation checkbox - hidden in read-only */}
                                         <div className="flex items-center gap-3 mb-2">
+                                            {!readOnly && (
                                             <button
                                                 onClick={() => toggleValidation('events', ev.id)}
                                                 className={`flex items-center gap-2 px-2 py-1 rounded transition-all ${isValidated(ev.id)
@@ -636,6 +712,7 @@ function Stage4Events() {
                                                     {isValidated(ev.id) ? '✓' : ''}
                                                 </span>
                                             </button>
+                                            )}
                                             <span className="text-lg font-semibold text-telha">{ev.eventId}</span>
                                             <span className="text-lg font-medium text-preto">{ev.eventCore}</span>
                                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getCategoryColor(ev.category)}`}>
@@ -654,18 +731,42 @@ function Stage4Events() {
                                         </div>
 
                                         {(() => {
-                                            // ev.clauseId is a UUID (database ID of the clause)
-                                            // Match by UUID directly, fallback to clauseIndex for legacy data
-                                            const dbClause = ev.clauseId 
-                                                ? dbClauses.find(c => c.id === ev.clauseId) 
+                                            // Prefer unitClauseIds (display-unit aligned) when available
+                                            const unitIds = (ev as any).unitClauseIds as number[] | undefined
+                                            if (unitIds?.length && passageData?.clauses) {
+                                                const bhsaClauses = unitIds
+                                                    .map((cid: number) => passageData.clauses.find((c: any) => c.clause_id === cid))
+                                                    .filter(Boolean)
+                                                const clauseText = bhsaClauses.map((c: any) => c.text).filter(Boolean).join(' ')
+                                                const clauseGloss = bhsaClauses.map((c: any) => c.gloss).filter(Boolean).join(' ')
+                                                const translation = bhsaClauses.map((c: any) => c.freeTranslation).filter(Boolean).join(' ')
+                                                return (
+                                                    <div className="mt-2 mb-3 pl-3 border-l-2 border-telha/20">
+                                                        {clauseText && (
+                                                            <p className="text-right text-lg font-serif text-preto mb-1" dir="rtl">{clauseText}</p>
+                                                        )}
+                                                        {clauseGloss && (
+                                                            <p className="text-sm text-verde italic mb-1">{clauseGloss}</p>
+                                                        )}
+                                                        {translation && (
+                                                            <p className="text-sm text-telha italic">"{translation}"</p>
+                                                        )}
+                                                        {!clauseText && !translation && (
+                                                            <p className="text-xs text-cinza/50 italic">(No clause data)</p>
+                                                        )}
+                                                    </div>
+                                                )
+                                            }
+
+                                            // Fallback: ev.clauseId is UUID (DB clause)
+                                            const dbClause = ev.clauseId
+                                                ? dbClauses.find(c => c.id === ev.clauseId)
                                                 : null
-                                            
-                                            // Also try matching with BHSA clause via clauseIndex for display
                                             const bhsaClause = dbClause
-                                                ? passageData?.clauses?.find((c: any) => c.clause_id === dbClause.clauseIndex)
+                                                ? passageData?.clauses?.find((c: any) => c.clause_id === (dbClause.clauseIndex + 1))
                                                 : null
 
-                                            if (!ev.clauseId) {
+                                            if (!ev.clauseId && !unitIds?.length) {
                                                 return (
                                                     <div className="mt-2 mb-3 pl-3 border-l-2 border-amarelo/20">
                                                         <p className="text-xs text-amarelo/70 italic">(No segment linked)</p>
@@ -673,7 +774,6 @@ function Stage4Events() {
                                                 )
                                             }
 
-                                            // Use DB clause freeTranslation, or BHSA clause data
                                             const translation = dbClause?.freeTranslation || bhsaClause?.freeTranslation
                                             const clauseText = dbClause?.text || bhsaClause?.text
                                             const clauseGloss = dbClause?.gloss || bhsaClause?.gloss
@@ -790,6 +890,7 @@ function Stage4Events() {
                                         })()}
                                     </div>
 
+                                    {!readOnly && (
                                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Button variant="ghost" size="sm" onClick={() => handleEdit(ev)}>
                                             <Pencil className="w-4 h-4" />
@@ -798,6 +899,7 @@ function Stage4Events() {
                                             <Trash2 className="w-4 h-4" />
                                         </Button>
                                     </div>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -843,10 +945,11 @@ function Stage4Events() {
                                 value={formData.category}
                                 options={EVENT_CATEGORIES}
                                 onChange={(v) => setFormData({ ...formData, category: v })}
+                                category="event_category"
                             />
                         </div>
 
-                        {/* Clause Selection - use DB clauses with UUID values */}
+                        {/* Segment selection: grouped display units when available (matches Stage 1), else raw clauses */}
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Associated Segment (Clause)</label>
                             <Select
@@ -854,13 +957,13 @@ function Stage4Events() {
                                 onValueChange={(v) => setFormData({ ...formData, clauseId: v === "unassigned" ? undefined : v })}
                             >
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Select a clause..." />
+                                    <SelectValue placeholder="Select a segment..." />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="unassigned">-- Unassigned --</SelectItem>
-                                    {dbClauses.map((c: any) => (
-                                        <SelectItem key={c.id} value={c.id}>
-                                            {c.clauseIndex}: {c.text}
+                                    {segmentOptions.map((opt: { value: string; label: string }) => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                            {opt.label}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -883,12 +986,14 @@ function Stage4Events() {
                                 value={formData.modifiers?.viewpoint}
                                 options={MODIFIERS.viewpoint.options}
                                 onChange={(v) => updateModifier('viewpoint', v)}
+                                category="modifier_viewpoint"
                             />
                             <SelectField
                                 label="Causation"
                                 value={formData.modifiers?.causation}
                                 options={MODIFIERS.causation.options}
                                 onChange={(v) => updateModifier('causation', v)}
+                                category="modifier_causation"
                             />
                         </div>
 
@@ -898,12 +1003,14 @@ function Stage4Events() {
                                 value={formData.narrativeFunction}
                                 options={NARRATIVE_FUNCTIONS}
                                 onChange={(v) => setFormData({ ...formData, narrativeFunction: v })}
+                                category="narrative_function"
                             />
                             <SelectField
                                 label="Discourse Function"
                                 value={formData.discourseFunction}
                                 options={DISCOURSE_FUNCTIONS}
                                 onChange={(v) => setFormData({ ...formData, discourseFunction: v })}
+                                category="discourse_function"
                             />
                         </div>
 
@@ -914,23 +1021,22 @@ function Stage4Events() {
                                 <div className="space-y-2">
                                     {formData.roles.map((role, i) => (
                                         <div key={i} className="flex gap-2 items-center">
-                                            <Select value={role.role} onValueChange={(v) => updateRole(i, 'role', v)}>
-                                                <SelectTrigger className="w-40">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {SEMANTIC_ROLES.map(r => (
-                                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                            <Select value={role.participantId || ''} onValueChange={(v) => updateRole(i, 'participantId', v)}>
+                                            <CreatableSelect
+                                                category="semantic_role"
+                                                value={role.role}
+                                                onValueChange={(v) => updateRole(i, 'role', v)}
+                                                placeholder="Select role..."
+                                                fallbackOptions={SEMANTIC_ROLES}
+                                                className="w-40"
+                                            />
+                                            <Select value={role.participantId || '__na__'} onValueChange={(v) => updateRole(i, 'participantId', v === '__na__' ? null : v)}>
                                                 <SelectTrigger className="flex-1">
                                                     <SelectValue placeholder="Select participant..." />
                                                 </SelectTrigger>
                                                 <SelectContent>
+                                                    <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                                     {participants.map((p, idx) => (
-                                                        <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.id}>
+                                                        <SelectItem key={p.id || `p-${p.participantId}-${idx}`} value={p.participantId}>
                                                             {p.participantId}: {p.gloss}
                                                         </SelectItem>
                                                     ))}
@@ -962,6 +1068,7 @@ function Stage4Events() {
                                             value={formData.modifiers?.[key as keyof EventModifier]}
                                             options={mod.options}
                                             onChange={(v) => updateModifier(key as keyof EventModifier, v)}
+                                            category={`modifier_${key === 'onPurpose' ? 'on_purpose' : key === 'howKnown' ? 'how_known' : key}`}
                                         />
                                     ))}
                                 </div>
@@ -984,6 +1091,7 @@ function Stage4Events() {
                                                 ...formData,
                                                 speechAct: { ...formData.speechAct, type: v }
                                             })}
+                                            category="speech_act_type"
                                         />
                                         <SelectField
                                             label="Quotation Type"
@@ -993,6 +1101,7 @@ function Stage4Events() {
                                                 ...formData,
                                                 speechAct: { ...formData.speechAct, quotationType: v }
                                             })}
+                                            category="quotation_type"
                                         />
                                     </div>
                                 </CollapsibleSection>
@@ -1009,6 +1118,7 @@ function Stage4Events() {
                                             ...formData,
                                             pragmatic: { ...formData.pragmatic, register: v }
                                         })}
+                                        category="discourse_register"
                                     />
                                     <SelectField
                                         label="Social Axis"
@@ -1018,6 +1128,7 @@ function Stage4Events() {
                                             ...formData,
                                             pragmatic: { ...formData.pragmatic, socialAxis: v }
                                         })}
+                                        category="social_axis"
                                     />
                                     <SelectField
                                         label="Prominence"
@@ -1027,6 +1138,7 @@ function Stage4Events() {
                                             ...formData,
                                             pragmatic: { ...formData.pragmatic, prominence: v }
                                         })}
+                                        category="prominence"
                                     />
                                     <SelectField
                                         label="Pacing"
@@ -1036,6 +1148,7 @@ function Stage4Events() {
                                             ...formData,
                                             pragmatic: { ...formData.pragmatic, pacing: v }
                                         })}
+                                        category="pacing"
                                     />
                                 </div>
                             </CollapsibleSection>
@@ -1057,36 +1170,42 @@ function Stage4Events() {
                                                     value={emo.primary}
                                                     options={EMOTIONS}
                                                     onChange={(v) => updateEmotion(i, 'primary', v)}
+                                                    category="emotion_primary"
                                                 />
                                                 <SelectField
                                                     label="Secondary Emotion"
                                                     value={emo.secondary}
                                                     options={EMOTIONS}
                                                     onChange={(v) => updateEmotion(i, 'secondary', v)}
+                                                    category="emotion_primary"
                                                 />
                                                 <SelectField
                                                     label="Intensity"
                                                     value={emo.intensity}
                                                     options={EMOTION_INTENSITIES}
                                                     onChange={(v) => updateEmotion(i, 'intensity', v)}
+                                                    category="emotion_intensity"
                                                 />
                                                 <SelectField
                                                     label="Source"
                                                     value={emo.source}
                                                     options={EMOTION_SOURCES}
                                                     onChange={(v) => updateEmotion(i, 'source', v)}
+                                                    category="emotion_source"
                                                 />
                                                 <SelectField
                                                     label="Confidence"
                                                     value={emo.confidence}
                                                     options={CONFIDENCE_LEVELS}
                                                     onChange={(v) => updateEmotion(i, 'confidence', v)}
+                                                    category="confidence"
                                                 />
-                                                <Select value={emo.participantId || ''} onValueChange={(v) => updateEmotion(i, 'participantId', v)}>
+                                                <Select value={emo.participantId || '__na__'} onValueChange={(v) => updateEmotion(i, 'participantId', v === '__na__' ? '' : v)}>
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Who feels it?" />
                                                     </SelectTrigger>
                                                     <SelectContent>
+                                                        <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                                         {participants.map(p => (
                                                             <SelectItem key={p.id} value={p.participantId}>
                                                                 {p.participantId}: {p.gloss}
@@ -1120,6 +1239,7 @@ function Stage4Events() {
                                             ...formData,
                                             narratorStance: { stance: v }
                                         })}
+                                        category="narrator_stance"
                                     />
                                     <SelectField
                                         label="Intended Audience Response"
@@ -1129,6 +1249,7 @@ function Stage4Events() {
                                             ...formData,
                                             audienceResponse: { response: v }
                                         })}
+                                        category="audience_response"
                                     />
                                 </div>
                             </CollapsibleSection>
@@ -1159,6 +1280,7 @@ function Stage4Events() {
                                                     ...formData,
                                                     figurative: { ...formData.figurative, figureType: v }
                                                 })}
+                                                category="figure_type"
                                             />
                                             <SelectField
                                                 label="Transferability"
@@ -1168,6 +1290,7 @@ function Stage4Events() {
                                                     ...formData,
                                                     figurative: { ...formData.figurative, transferability: v }
                                                 })}
+                                                category="transferability"
                                             />
                                             <div>
                                                 <label className="text-sm font-medium text-preto mb-1.5 block">Source Domain</label>
@@ -1254,12 +1377,14 @@ function Stage4Events() {
                                                     value={term.semanticDomain}
                                                     options={SEMANTIC_DOMAINS}
                                                     onChange={(v) => updateKeyTerm(i, 'semanticDomain', v)}
+                                                    category="semantic_domain"
                                                 />
                                                 <SelectField
                                                     label="Consistency"
                                                     value={term.consistency}
                                                     options={CONSISTENCY_OPTIONS}
                                                     onChange={(v) => updateKeyTerm(i, 'consistency', v)}
+                                                    category="consistency"
                                                 />
                                             </div>
                                         </div>

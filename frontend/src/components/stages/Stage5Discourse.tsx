@@ -10,6 +10,7 @@ import { Badge } from '../ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog'
 import { MessageSquare, ArrowRight, Plus, Trash2, Loader2, Save, CheckCircle, Users, Zap, Check, CheckCircle2, Pencil } from 'lucide-react'
+import { CreatableSelect } from '../ui/creatable-select'
 
 // Category colors for visual distinction
 const CATEGORY_COLORS: Record<string, string> = {
@@ -24,7 +25,8 @@ const CATEGORY_COLORS: Record<string, string> = {
     META: 'bg-gray-100 text-gray-700 border-gray-200',
 }
 
-const DISCOURSE_RELATIONS = [
+// Fallback options for discourse relations
+const DISCOURSE_RELATIONS_FALLBACK = [
     { value: 'sequence', label: 'Sequence (and then)' },
     { value: 'simultaneous', label: 'Simultaneous (while)' },
     { value: 'cause', label: 'Cause (because)' },
@@ -45,6 +47,7 @@ function Stage5Discourse() {
         discourse,
         setDiscourse,
         events,
+        readOnly,
         participants,
         loading,
         setLoading,
@@ -108,6 +111,7 @@ function Stage5Discourse() {
     }
 
     const handleCreate = () => {
+        if (readOnly) return
         setFormData({
             relationType: 'sequence',
             sourceId: events[0]?.id || '',
@@ -118,6 +122,7 @@ function Stage5Discourse() {
     }
 
     const handleEdit = (d: DiscourseRelationResponse) => {
+        if (readOnly) return
         setFormData({
             relationType: d.relationType,
             sourceId: d.sourceId,
@@ -139,7 +144,12 @@ function Stage5Discourse() {
             setLoading(true)
             if (editingId) {
                 const updated = await bhsaAPI.updateDiscourse(editingId, formData)
-                setDiscourse(discourse.map((d: DiscourseRelationResponse) => d.id === editingId ? updated : d))
+                const idToUpdate = editingId
+                setDiscourse((prev: DiscourseRelationResponse[]): DiscourseRelationResponse[] => {
+                    const prevItem = prev.find((d) => d.id === idToUpdate)
+                    const merged: DiscourseRelationResponse = prevItem ? { ...prevItem, ...updated } : updated
+                    return prev.map((d) => (d.id === idToUpdate ? merged : d))
+                })
 
                 // Track update
                 if (aiSnapshot) {
@@ -154,7 +164,7 @@ function Stage5Discourse() {
                 }
             } else {
                 const created = await bhsaAPI.createDiscourse(passageData.id, formData)
-                setDiscourse([...discourse, created])
+                setDiscourse((prev: DiscourseRelationResponse[]): DiscourseRelationResponse[] => [...prev, created])
 
                 // Track creation
                 if (aiSnapshot) {
@@ -177,7 +187,7 @@ function Stage5Discourse() {
         try {
             setLoading(true)
             await bhsaAPI.deleteDiscourse(id)
-            setDiscourse(discourse.filter(d => d.id !== id))
+            setDiscourse((prev: DiscourseRelationResponse[]): DiscourseRelationResponse[] => prev.filter((d) => d.id !== id))
 
             // Track deletion
             if (aiSnapshot) {
@@ -291,10 +301,12 @@ function Stage5Discourse() {
                     </h2>
                     <p className="text-verde mt-1">Define high-level structure and relationships between events.</p>
                 </div>
+                {!readOnly && (
                 <Button onClick={handleCreate} disabled={events.length < 2} className="gap-2">
                     <Plus className="w-4 h-4" />
                     Add Relation
                 </Button>
+                )}
             </div>
 
             {error && (
@@ -313,7 +325,7 @@ function Stage5Discourse() {
                         </span>
                         {allValidated && <Badge variant="success" className="ml-2">✓ All Reviewed</Badge>}
                     </div>
-                    {isAdmin && (
+                    {!readOnly && isAdmin && (
                         <Button
                             variant="outline"
                             size="sm"
@@ -432,13 +444,15 @@ function Stage5Discourse() {
                                         </Badge>
                                         <ArrowRight className="w-8 h-8 text-telha" />
                                         <span className="text-[10px] text-verde/60 text-center">
-                                            {DISCOURSE_RELATIONS.find(r => r.value === d.relationType)?.label.split('(')[1]?.replace(')', '') || ''}
+                                            {DISCOURSE_RELATIONS_FALLBACK.find(r => r.value === d.relationType)?.label.split('(')[1]?.replace(')', '') || ''}
                                         </span>
                                     </div>
 
                                     {/* Target event */}
                                     <EventBox event={target} side="target" />
 
+                                    {!readOnly && (
+                                    <>
                                     {/* Edit button */}
                                     <Button
                                         variant="ghost"
@@ -458,6 +472,8 @@ function Stage5Discourse() {
                                     >
                                         <Trash2 className="w-4 h-4" />
                                     </Button>
+                                    </>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -535,12 +551,12 @@ function Stage5Discourse() {
                     <div className="space-y-4 py-4">
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Source Event</label>
-                            <Select value={formData.sourceId} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__clear__' ? '' : v })}>
+                            <Select value={formData.sourceId || '__na__'} onValueChange={(v) => setFormData({ ...formData, sourceId: v === '__na__' ? '' : v })}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select event..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                    <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                     {[...events].sort((a, b) => {
                                         const getNum = (id: string) => {
                                             const match = id.match(/^e(\d+)$/);
@@ -561,27 +577,23 @@ function Stage5Discourse() {
 
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Relation Type</label>
-                            <Select value={formData.relationType} onValueChange={(v) => setFormData({ ...formData, relationType: v === '__clear__' ? '' : v })}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
-                                    {DISCOURSE_RELATIONS.map(r => (
-                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <CreatableSelect
+                                category="discourse_relation"
+                                value={formData.relationType}
+                                onValueChange={(v) => setFormData({ ...formData, relationType: v })}
+                                placeholder="Select relation type..."
+                                fallbackOptions={DISCOURSE_RELATIONS_FALLBACK}
+                            />
                         </div>
 
                         <div>
                             <label className="text-sm font-medium text-preto mb-1.5 block">Target Event</label>
-                            <Select value={formData.targetId} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__clear__' ? '' : v })}>
+                            <Select value={formData.targetId || '__na__'} onValueChange={(v) => setFormData({ ...formData, targetId: v === '__na__' ? '' : v })}>
                                 <SelectTrigger>
                                     <SelectValue placeholder="Select event..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="__clear__" className="text-gray-400 italic">N/A</SelectItem>
+                                    <SelectItem value="__na__" className="text-gray-500 italic">N/A</SelectItem>
                                     {[...events].sort((a, b) => {
                                         const getNum = (id: string) => {
                                             const match = id.match(/^e(\d+)$/);
