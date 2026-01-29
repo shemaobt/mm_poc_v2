@@ -4,7 +4,7 @@ gunicorn==22.0.0
 prisma==0.15.0
 pydantic[email]==2.10.0
 pydantic-settings==2.6.0
-text-fabric==12.5.5
+text-fabric==12.6.4
 anthropic==0.40.0
 python-dotenv==1.0.1
 httpx==0.28.0
