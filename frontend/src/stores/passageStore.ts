@@ -23,6 +23,7 @@ interface ValidationState {
 interface PassageStore {
     // State
     passageData: PassageData | null
+    readOnly: boolean  // When true, open from Saved Maps — same UI, no edits
     participants: ParticipantResponse[]
     relations: RelationResponse[]
     events: EventResponse[]
@@ -35,12 +36,13 @@ interface PassageStore {
     validated: ValidationState
     checkedClauses: Set<string>  // Stage 1 clause read-check state
 
-    // Actions
+    // Actions (setters accept value or updater function for safe async updates)
     setPassageData: (data: PassageData) => void
-    setParticipants: (participants: ParticipantResponse[]) => void
-    setRelations: (relations: RelationResponse[]) => void
-    setEvents: (events: EventResponse[]) => void
-    setDiscourse: (discourse: DiscourseRelationResponse[]) => void
+    setReadOnly: (readOnly: boolean) => void
+    setParticipants: (participants: ParticipantResponse[] | ((prev: ParticipantResponse[]) => ParticipantResponse[])) => void
+    setRelations: (relations: RelationResponse[] | ((prev: RelationResponse[]) => RelationResponse[])) => void
+    setEvents: (events: EventResponse[] | ((prev: EventResponse[]) => EventResponse[])) => void
+    setDiscourse: (discourse: DiscourseRelationResponse[] | ((prev: DiscourseRelationResponse[]) => DiscourseRelationResponse[])) => void
     setLoading: (loading: boolean) => void
     setError: (error: string | null) => void
     setBhsaLoaded: (loaded: boolean) => void
@@ -72,6 +74,7 @@ export const usePassageStore = create<PassageStore>()(
         (set, get) => ({
             // Initial state
             passageData: null,
+            readOnly: false,
             participants: [],
             relations: [],
             events: [],
@@ -91,15 +94,24 @@ export const usePassageStore = create<PassageStore>()(
 
             // Actions
             setPassageData: (data) => set({ passageData: data, error: null }),
-            setParticipants: (participants) => set({ participants }),
-            setRelations: (relations) => set({ relations }),
-            setEvents: (events) => set({ events }),
-            setDiscourse: (discourse) => set({ discourse }),
+            setParticipants: (arg) => set({
+                participants: typeof arg === 'function' ? arg(get().participants) : arg
+            }),
+            setRelations: (arg) => set({
+                relations: typeof arg === 'function' ? arg(get().relations) : arg
+            }),
+            setEvents: (arg) => set({
+                events: typeof arg === 'function' ? arg(get().events) : arg
+            }),
+            setDiscourse: (arg) => set({
+                discourse: typeof arg === 'function' ? arg(get().discourse) : arg
+            }),
             setLoading: (loading) => set({ loading }),
             setError: (error) => set({ error, loading: false }),
             setBhsaLoaded: (loaded) => set({ bhsaLoaded: loaded }),
             clearPassage: () => set({
                 passageData: null,
+                readOnly: false,
                 participants: [],
                 relations: [],
                 events: [],
@@ -115,6 +127,7 @@ export const usePassageStore = create<PassageStore>()(
                 },
                 checkedClauses: new Set<string>()
             }),
+            setReadOnly: (readOnly) => set({ readOnly }),
             
             // Discard session: clears local state AND localStorage (keeps DB data intact)
             discardSession: () => {
@@ -124,6 +137,7 @@ export const usePassageStore = create<PassageStore>()(
                 // Reset state
                 set({
                     passageData: null,
+                    readOnly: false,
                     participants: [],
                     relations: [],
                     events: [],
