@@ -14,11 +14,13 @@ import {
 interface SidebarProps {
     currentView?: ViewType
     onViewChange?: (view: ViewType) => void
+    /** When provided, clicking "Editor" clears the current passage and goes to editor home (start new pericope). */
+    onEditorHome?: () => void
     isCollapsed?: boolean
     setIsCollapsed?: (collapsed: boolean) => void
 }
 
-export default function Sidebar({ currentView, onViewChange, isCollapsed: externalIsCollapsed, setIsCollapsed: externalSetIsCollapsed }: SidebarProps) {
+export default function Sidebar({ currentView, onViewChange, onEditorHome, isCollapsed: externalIsCollapsed, setIsCollapsed: externalSetIsCollapsed }: SidebarProps) {
     const [isMobileOpen, setIsMobileOpen] = useState(false)
     const [internalIsCollapsed, setInternalIsCollapsed] = useState(false)
     const { user, isAdmin, logout } = useAuth()
@@ -55,6 +57,15 @@ export default function Sidebar({ currentView, onViewChange, isCollapsed: extern
                     {menuItems.map((item) => {
                         const Icon = item.icon
                         const isActive = currentView === item.id
+                        const isEditor = item.id === 'analysis'
+                        const handleClick = () => {
+                            if (isEditor && onEditorHome) {
+                                onEditorHome()
+                                setIsMobileOpen(false)
+                            } else {
+                                handleNavClick(item.id)
+                            }
+                        }
                         return (
                             <Button
                                 key={item.id}
@@ -69,7 +80,7 @@ export default function Sidebar({ currentView, onViewChange, isCollapsed: extern
                                         : 'text-verde/80'
                                     }
                                 `}
-                                onClick={() => handleNavClick(item.id)}
+                                onClick={handleClick}
                                 title={collapsed ? item.label : undefined}
                             >
                                 <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-telha' : 'text-verde/70'}`} />
