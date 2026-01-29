@@ -12,8 +12,10 @@ from app.services.tripod_data import TRIPOD_SCHEMA
 # ============================================================
 
 def build_clause_text(clause: Dict) -> str:
-    """Format a single clause for the prompt"""
-    return f"Clause {clause.get('clause_id')} ({clause.get('clause_type', 'UNK')}): {clause.get('text')} [{clause.get('gloss')}]"
+    """Format a single clause for the prompt. Include lemma so AI can match eventCore to verb."""
+    lemma = clause.get("lemma") or clause.get("lemma_ascii") or ""
+    lemma_part = f" lemma={lemma}" if lemma else ""
+    return f"Clause {clause.get('clause_id')} ({clause.get('clause_type', 'UNK')}{lemma_part}): {clause.get('text')} [{clause.get('gloss')}]"
 
 def build_passage_context(passage_data: Dict) -> str:
     """Format passage data for the prompt"""
@@ -23,6 +25,39 @@ def build_passage_context(passage_data: Dict) -> str:
 PASSAGE REFERENCE: {passage_data.get('reference')}
 SOURCE TEXT (Hebrew/English):
 {formatted_clauses}
+    """
+
+
+def build_passage_context_with_units(passage_data: Dict) -> str:
+    """
+    Format passage using display_units (grouped clauses). Events will map 1:1 to display units.
+    Use this when display_units exist so events align with Stage 1 grouping.
+    """
+    clauses = passage_data.get('clauses', [])
+    clause_by_id = {c.get('clause_id'): c for c in clauses if c.get('clause_id') is not None}
+    units = passage_data.get('display_units')
+    if not units or not all(u.get('clause_ids') for u in units):
+        return build_passage_context(passage_data)
+
+    lines = []
+    for idx, unit in enumerate(units):
+        ids = unit.get('clause_ids', [])
+        unit_clauses = [clause_by_id.get(cid) for cid in ids if clause_by_id.get(cid)]
+        if not unit_clauses:
+            continue
+        combined_text = ' '.join(c.get('text', '') for c in unit_clauses)
+        combined_gloss = ' '.join(c.get('gloss', '') for c in unit_clauses)
+        ids_str = ','.join(str(i) for i in ids)
+        merged = unit.get('merged', len(ids) > 1)
+        label = f"Unit {idx + 1} (clauses {ids_str})" if merged else f"Unit {idx + 1} (clause {ids[0]})"
+        lines.append(f"{label}: {combined_text} [{combined_gloss}]")
+    formatted = "\n".join(lines)
+    return f"""
+PASSAGE REFERENCE: {passage_data.get('reference')}
+DISPLAY UNITS (grouped clauses - one event per unit):
+{formatted}
+
+CRITICAL: You MUST output exactly ONE event per unit. The number of events in your response MUST equal the number of units above. Do not merge units or skip units. Use clauseIds (array of clause_ids for that unit) for each event.
     """
 
 
@@ -95,12 +130,13 @@ def build_events_system_prompt(participants_context: str) -> str:
     OUTPUT FORMAT:
     Return valid JSON with 'events' and 'discourse' arrays only.
     
-    SCHEMA EXCERPT:
+    SCHEMA EXCERPT (use clauseIds array when passage has display units; clauseId for single-clause units):
     {{
         "events": [
             {{ 
                 "eventId": "e1", 
                 "clauseId": "1",
+                "clauseIds": [1, 2, 3],
                 "category": "ACTION",
                 "eventCore": "create", 
                 "discourseFunction": "mainline",
@@ -211,10 +247,11 @@ def build_events_system_prompt(participants_context: str) -> str:
     
     RULES:
     1. Map every main verbal clause to an Event with FULL details.
-    2. Explicitly LINK every event to its source 'clauseId' provided in the text.
-    3. Connect events with discourse relations.
-    4. Use the provided participant IDs (p1, p2, etc.) in event roles.
-    5. Be thorough but ground all analysis in the provided text.
+    2. When passage has DISPLAY UNITS: output EXACTLY one event per unit. Number of events MUST equal number of units. Use clauseIds array (e.g. [1,2,3]) for each unit's clause_ids. When passage has raw clauses, use clauseId (string "1", "2"...).
+    3. The eventCore (e.g. "go", "say", "create") MUST match the verb/action in that unit. Use the gloss or lemma from the text—do not substitute a different English word.
+    4. Connect events with discourse relations.
+    5. Use the provided participant IDs (p1, p2, etc.) in event roles.
+    6. Be thorough but ground all analysis in the provided text.
     6. For events with category 'SPEECH' or 'COMMUNICATION', you MUST include the 'speechAct' object.
     7. For each event, identify KEY TERMS - significant Hebrew words that require consistent translation:
        - Divine names from participants with type 'divine'
@@ -256,6 +293,54 @@ def build_translation_system_prompt() -> str:
     """
 
 
+def build_clause_merge_system_prompt() -> str:
+    """System prompt for AI to decide whether to merge adjacent BHSA clauses for display."""
+    return """
+    You are an expert Biblical Hebrew linguist. The passage is split into clauses from the BHSA/ETCBC database.
+    Some clauses are very short (e.g. single-word imperatives like "Go", "return") and may read better when
+    shown together as one unit for review.
+
+    TASK:
+    Decide which adjacent clauses should be MERGED into a single display unit for readability in the UI.
+    You may merge zero, some, or many adjacent clauses. Do not merge non-adjacent clauses.
+
+    RULES:
+    1. Only merge ADJACENT clauses (e.g. clauses 2 and 3, or 5 and 6 and 7).
+    2. Every clause_id from 1 to N must appear in exactly one display unit, in order.
+    3. Merging is optional: if the passage reads fine clause-by-clause, return one unit per clause.
+    4. Prefer merging when: short imperatives in sequence, or very short fragments that form one thought.
+    5. Do not merge when: different speakers, different verse numbers, or distinct narrative beats.
+
+    OUTPUT FORMAT:
+    Return valid JSON with a single key "display_units", an array of objects. Each object has:
+    - "clause_ids": array of integers (the BHSA clause_ids in this unit, in order)
+    - "merged": true only when the unit contains more than one clause; false for single-clause units
+
+    Example (clauses 1 single; 2 and 3 merged; 4 single):
+    {
+        "display_units": [
+            { "clause_ids": [1], "merged": false },
+            { "clause_ids": [2, 3], "merged": true },
+            { "clause_ids": [4], "merged": false }
+        ]
+    }
+    """
+
+
+def build_clause_merge_user_prompt(passage_data: Dict) -> str:
+    """Build user prompt for clause-merge decision: list clauses with id, text, gloss, type."""
+    clauses = passage_data.get("clauses", [])
+    lines = []
+    for c in clauses:
+        cid = c.get("clause_id")
+        text = c.get("text", "")
+        gloss = c.get("gloss", "")
+        ctype = c.get("clause_type", "")
+        lines.append(f"Clause {cid} (v{c.get('verse', '?')}, {ctype}): {text} [{gloss}]")
+    ref = passage_data.get("reference", "")
+    return f"Passage: {ref}\n\nClauses:\n" + "\n".join(lines) + "\n\nReturn display_units as JSON."
+
+
 # ============================================================
 # SERVICE FUNCTIONS (API Calls)
 # ============================================================
@@ -281,14 +366,22 @@ class AIService:
     async def analyze_events(passage_data: Dict, participants_context: str, api_key: str) -> Dict[str, Any]:
         """Phase 2: Analyze Events & Discourse (requires Phase 1 context)"""
         print(f"[AI] Starting Phase 2: Events & Discourse for {passage_data.get('reference')}")
+        num_units = len(passage_data.get("display_units") or [])
+        num_clauses = len(passage_data.get("clauses") or [])
+        if num_units:
+            print(f"[AI] Input: {num_units} display units, {num_clauses} raw clauses")
         result = await AIService._call_claude_generic(
             passage_data, 
             api_key, 
             system_prompt=build_events_system_prompt(participants_context),
             phase_name="Phase 2"
         )
+        events = result.get("events", [])
+        print(f"[AI] Phase 2 returned {len(events)} events (display_units={num_units})")
+        if num_units and len(events) != num_units:
+            print(f"[AI] WARNING: event count ({len(events)}) != display unit count ({num_units}). AI may have merged/skipped units.")
         return {
-            "events": result.get("events", []),
+            "events": events,
             "discourse": result.get("discourse", [])
         }
 
@@ -380,6 +473,72 @@ class AIService:
                 raise e
 
     @staticmethod
+    def _validate_display_units(display_units: List[Dict], clause_ids: List[int]) -> bool:
+        """Check that display_units cover each clause_id exactly once and only adjacent clauses."""
+        if not display_units or not clause_ids:
+            return bool(display_units == [] and clause_ids == [])
+        seen = set()
+        for unit in display_units:
+            ids = unit.get("clause_ids") or []
+            if not ids:
+                return False
+            for i, cid in enumerate(ids):
+                if cid in seen or cid not in clause_ids:
+                    return False
+                seen.add(cid)
+                if i > 0 and ids[i - 1] != cid - 1:
+                    return False  # not adjacent
+            if len(ids) > 1 and ids != list(range(ids[0], ids[-1] + 1)):
+                return False  # gap inside unit
+        return seen == set(clause_ids)
+
+    @staticmethod
+    async def suggest_clause_merges(passage_data: Dict, api_key: str) -> List[Dict]:
+        """
+        Ask AI whether to merge adjacent clauses for display. Returns display_units:
+        list of { clause_ids: [int], merged: bool }. If AI fails or returns invalid, returns one unit per clause.
+        """
+        import asyncio
+        clauses = passage_data.get("clauses", [])
+        clause_ids = [c.get("clause_id") for c in clauses if c.get("clause_id") is not None]
+        if not clause_ids:
+            return []
+
+        default_units = [{"clause_ids": [cid], "merged": False} for cid in clause_ids]
+
+        try:
+            client = anthropic.AsyncAnthropic(api_key=api_key)
+            message = await client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                temperature=0.2,
+                system=build_clause_merge_system_prompt(),
+                messages=[{"role": "user", "content": build_clause_merge_user_prompt(passage_data)}],
+            )
+            content = message.content[0].text
+            result = AIService._clean_and_parse_json(content)
+            units = result.get("display_units")
+            if not isinstance(units, list) or not units:
+                return default_units
+            # Normalize: ensure clause_ids and merged
+            normalized = []
+            for u in units:
+                ids = u.get("clause_ids") if isinstance(u, dict) else None
+                if not ids:
+                    continue
+                ids = [int(x) for x in ids]
+                merged = bool(u.get("merged", len(ids) > 1))
+                normalized.append({"clause_ids": ids, "merged": merged})
+            if not AIService._validate_display_units(normalized, clause_ids):
+                print("[AI] Clause merge response invalid (coverage or adjacency), using one unit per clause.")
+                return default_units
+            print(f"[AI] Clause merge: {len(normalized)} display units (from {len(clause_ids)} clauses).")
+            return normalized
+        except Exception as e:
+            print(f"[AI] Clause merge failed: {e}, using one unit per clause.")
+            return default_units
+
+    @staticmethod
     async def _call_claude_generic(passage_data: Dict, api_key: str, system_prompt: str, phase_name: str = "Analysis") -> Dict[str, Any]:
         """
         Generic Claude API caller for different phases
@@ -389,7 +548,12 @@ class AIService:
         
         start_time = time.time()
         client = anthropic.AsyncAnthropic(api_key=api_key)
-        user_prompt = build_passage_context(passage_data)
+        # Use display units when available (Phase 2) so events align with Stage 1 grouping
+        use_units = bool(passage_data.get("display_units") and phase_name and "Phase 2" in phase_name)
+        num_units = len(passage_data.get("display_units") or []) if use_units else 0
+        if use_units:
+            print(f"[AI] Phase 2 using display_units: {num_units} units (expect 1 event per unit)")
+        user_prompt = build_passage_context_with_units(passage_data) if use_units else build_passage_context(passage_data)
         
         print(f"[AI] Calling Claude ({phase_name})...")
         

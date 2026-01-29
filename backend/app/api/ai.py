@@ -187,11 +187,29 @@ async def analyze_full_stream(passage_ref: str, api_key: str = ""):
                 "type": p.get("type")
             } for p in analysis_p1.get("participants", [])], indent=2, ensure_ascii=False)
             
+            # Inject display_units so events align with Stage 1 grouping (group before events)
+            stored_units = passage.displayUnits if passage and getattr(passage, 'displayUnits', None) else None
+            if stored_units:
+                passage_data["display_units"] = stored_units
+                print(f"[Stream] Using stored display_units: {len(stored_units)} units (expect 1 event per unit)")
+            elif resolved_api_key:
+                try:
+                    display_units = await AIService.suggest_clause_merges(passage_data, resolved_api_key)
+                    passage_data["display_units"] = display_units
+                    print(f"[Stream] Generated display_units: {len(display_units)} units (expect 1 event per unit)")
+                except Exception as e:
+                    print(f"[Stream] Clause merge failed: {e}, using raw clauses")
+            else:
+                print(f"[Stream] No display_units: {len(passage_data.get('clauses', []))} raw clauses")
+            
             yield f"data: {json.dumps({'step': 'ai_phase2', 'phase': 3, 'message': 'Calling Claude AI for events...'})}\n\n"
             
             analysis_p2 = await AIService.analyze_events(passage_data, participants_context, resolved_api_key)
             
             total_events = len(analysis_p2.get("events", []))
+            num_units = len(passage_data.get("display_units") or [])
+            if num_units and total_events != num_units:
+                print(f"[Stream] MISMATCH: display_units={num_units} but AI returned events={total_events}. Expected 1 event per unit.")
             total_discourse = len(analysis_p2.get("discourse", []))
             
             yield f"data: {json.dumps({'step': 'ai_phase2_complete', 'phase': 3, 'message': f'AI found {total_events} events', 'totalEvents': total_events, 'totalDiscourse': total_discourse})}\n\n"
@@ -211,7 +229,12 @@ async def analyze_full_stream(passage_ref: str, api_key: str = ""):
             for idx, ev in enumerate(analysis_p2.get("events", [])):
                 try:
                     event_id_str = ev.get("eventId", f"e{idx+1}")
-                    ai_clause_id = str(ev.get("clauseId", ""))
+                    # Support clauseIds (array) for display units, or clauseId (string) for single clause
+                    ai_clause_ids = ev.get("clauseIds")
+                    if ai_clause_ids is None:
+                        ai_clause_ids = [ev.get("clauseId")] if ev.get("clauseId") else []
+                    ai_clause_ids = [int(x) for x in ai_clause_ids if x is not None and str(x).strip()]
+                    ai_clause_id = str(ai_clause_ids[0]) if ai_clause_ids else str(ev.get("clauseId", ""))
                     db_clause_id = clause_map.get(ai_clause_id)
                     
                     event_data = {
@@ -224,6 +247,8 @@ async def analyze_full_stream(passage_ref: str, api_key: str = ""):
                         "narrativeFunction": ev.get("narrativeFunction"),
                     }
                     
+                    if ai_clause_ids:
+                        event_data["unitClauseIds"] = Json(ai_clause_ids)
                     if db_clause_id:
                         event_data["clause"] = {"connect": {"id": db_clause_id}}
                     
@@ -421,8 +446,52 @@ async def analyze_phase2(request: AIPrefillRequest):
             where={"passageId": passage.id}
         )
         
+        # If no participants but we have API key, run Phase 1 first (e.g. after Refetch grouping on a new passage)
+        if not db_participants and api_key:
+            print("[Phase2] No participants found; running Phase 1 first.")
+            analysis_p1 = await AIService.analyze_participants(passage_data, api_key)
+            await _clear_ai_data(db, passage.id, clear_all=True)
+            from prisma import Json
+            participant_id_map = {}
+            for idx, p in enumerate(analysis_p1.get("participants", [])):
+                try:
+                    created = await db.participant.create(
+                        data={
+                            "passage": {"connect": {"id": passage.id}},
+                            "participantId": p.get("participantId", f"p{idx+1}"),
+                            "hebrew": p.get("hebrew", ""),
+                            "gloss": p.get("gloss", ""),
+                            "type": p.get("type", "person"),
+                            "quantity": p.get("quantity"),
+                            "referenceStatus": p.get("referenceStatus"),
+                            "properties": Json(p.get("properties") or [])
+                        }
+                    )
+                    participant_id_map[p.get("participantId")] = created.id
+                except Exception as e:
+                    print(f"Error saving participant: {e}")
+            for rel in analysis_p1.get("relations", []):
+                try:
+                    s_id = rel.get("sourceId")
+                    t_id = rel.get("targetId")
+                    source_db_id = participant_id_map.get(s_id)
+                    target_db_id = participant_id_map.get(t_id)
+                    if source_db_id and target_db_id:
+                        await db.participantrelation.create(
+                            data={
+                                "passage": {"connect": {"id": passage.id}},
+                                "category": rel.get("category", "social"),
+                                "type": rel.get("type", ""),
+                                "source": {"connect": {"id": source_db_id}},
+                                "target": {"connect": {"id": target_db_id}},
+                            }
+                        )
+                except Exception as e:
+                    print(f"Error saving relation: {e}")
+            db_participants = await db.participant.find_many(where={"passageId": passage.id})
+        
         if not db_participants:
-            raise HTTPException(status_code=400, detail="No participants found. Run Phase 1 first.")
+            raise HTTPException(status_code=400, detail="No participants found. Run Phase 1 first (or provide API key).")
             
         participants_context_list = [{
             "participantId": p.participantId,
@@ -436,8 +505,27 @@ async def analyze_phase2(request: AIPrefillRequest):
         
         participants_context = json.dumps(participants_context_list, indent=2, ensure_ascii=False)
         
+        # 2b. Inject display_units so events align with Stage 1 grouping (group before events)
+        stored_units = passage.displayUnits if passage and getattr(passage, 'displayUnits', None) else None
+        if stored_units:
+            passage_data["display_units"] = stored_units
+            print(f"[Phase2] Using stored display_units: {len(stored_units)} units (expect 1 event per unit)")
+        elif api_key:
+            try:
+                display_units = await AIService.suggest_clause_merges(passage_data, api_key)
+                passage_data["display_units"] = display_units
+                print(f"[Phase2] Generated display_units: {len(display_units)} units (expect 1 event per unit)")
+            except Exception as e:
+                print(f"[Phase2] Clause merge failed: {e}, using raw clauses")
+        else:
+            print(f"[Phase2] No display_units (raw clauses): {len(passage_data.get('clauses', []))} clauses")
+        
         # 3. Call AI Phase 2
         analysis = await AIService.analyze_events(passage_data, participants_context, api_key)
+        num_events = len(analysis.get("events", []))
+        num_units = len(passage_data.get("display_units") or [])
+        if num_units and num_events != num_units:
+            print(f"[Phase2] MISMATCH: display_units={num_units} but AI returned events={num_events}. Expected 1 event per unit.")
         
         # 4. Save Phase 2 (Clear events/discourse only)
         await _clear_ai_data(db, passage.id, clear_events_only=True)
@@ -452,6 +540,8 @@ async def analyze_phase2(request: AIPrefillRequest):
         
         return {"status": "success", "data": saved_data}
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Phase 2 Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -486,8 +576,52 @@ async def analyze_phase2_stream(passage_ref: str, api_key: str = ""):
             # 2. Build Context from DB Participants
             db_participants = await db.participant.find_many(where={"passageId": passage.id})
             
+            # If no participants but we have API key, run Phase 1 first (e.g. after Refetch grouping on a new passage)
+            if not db_participants and resolved_api_key:
+                yield f"data: {json.dumps({'step': 'phase1_first', 'message': 'No participants found. Running Phase 1 first...'})}\n\n"
+                from prisma import Json
+                analysis_p1 = await AIService.analyze_participants(passage_data, resolved_api_key)
+                await _clear_ai_data(db, passage.id, clear_all=True)
+                participant_id_map = {}
+                for idx, p in enumerate(analysis_p1.get("participants", [])):
+                    try:
+                        created = await db.participant.create(
+                            data={
+                                "passage": {"connect": {"id": passage.id}},
+                                "participantId": p.get("participantId", f"p{idx+1}"),
+                                "hebrew": p.get("hebrew", ""),
+                                "gloss": p.get("gloss", ""),
+                                "type": p.get("type", "person"),
+                                "quantity": p.get("quantity"),
+                                "referenceStatus": p.get("referenceStatus"),
+                                "properties": Json(p.get("properties") or [])
+                            }
+                        )
+                        participant_id_map[p.get("participantId")] = created.id
+                    except Exception as e:
+                        print(f"Error saving participant: {e}")
+                for rel in analysis_p1.get("relations", []):
+                    try:
+                        s_id = rel.get("sourceId")
+                        t_id = rel.get("targetId")
+                        source_db_id = participant_id_map.get(s_id)
+                        target_db_id = participant_id_map.get(t_id)
+                        if source_db_id and target_db_id:
+                            await db.participantrelation.create(
+                                data={
+                                    "passage": {"connect": {"id": passage.id}},
+                                    "category": rel.get("category", "social"),
+                                    "type": rel.get("type", ""),
+                                    "source": {"connect": {"id": source_db_id}},
+                                    "target": {"connect": {"id": target_db_id}},
+                                }
+                            )
+                    except Exception as e:
+                        print(f"Error saving relation: {e}")
+                db_participants = await db.participant.find_many(where={"passageId": passage.id})
+            
             if not db_participants:
-                yield f"data: {json.dumps({'step': 'error', 'message': 'No participants found. Run Phase 1 first.'})}\n\n"
+                yield f"data: {json.dumps({'step': 'error', 'message': 'No participants found. Run Phase 1 first (or provide API key).'})}\n\n"
                 return
             
             participants_context_list = [{
@@ -501,6 +635,17 @@ async def analyze_phase2_stream(passage_ref: str, api_key: str = ""):
             } for p in db_participants]
             
             participants_context = json.dumps(participants_context_list, indent=2, ensure_ascii=False)
+            
+            # 2b. Inject display_units so events align with Stage 1 grouping (group before events)
+            stored_units = passage.displayUnits if passage and getattr(passage, 'displayUnits', None) else None
+            if stored_units:
+                passage_data["display_units"] = stored_units
+            elif resolved_api_key:
+                try:
+                    display_units = await AIService.suggest_clause_merges(passage_data, resolved_api_key)
+                    passage_data["display_units"] = display_units
+                except Exception as e:
+                    print(f"[Phase2 Stream] Clause merge failed: {e}, using raw clauses")
             
             yield f"data: {json.dumps({'step': 'ai_call', 'message': 'Calling Claude AI for events analysis...'})}\n\n"
             
@@ -685,7 +830,8 @@ async def _save_phase2_data(db, passage_id: str, analysis: dict) -> dict:
     # Fetch clauses for linking (map logic: clauseIndex + 1 -> db_id)
     db_clauses = await db.clause.find_many(where={"passageId": passage_id}, order={"clauseIndex": "asc"})
     clause_map = {str(c.clauseIndex + 1): c.id for c in db_clauses}
-    print(f"[Debug] Clause Map for {passage_id}: {clause_map}")
+    num_events_to_save = len(analysis.get("events", []))
+    print(f"[Phase2] Saving {num_events_to_save} events for passage {passage_id} (DB clauses={len(db_clauses)})")
 
     saved_events = []
     saved_discourse = []
@@ -695,9 +841,14 @@ async def _save_phase2_data(db, passage_id: str, analysis: dict) -> dict:
     if analysis.get("events"):
         for ev in analysis["events"]:
             try:
-                ai_clause_id = str(ev.get("clauseId", ""))
+                # Support clauseIds (array) for display units, or clauseId (string) for single clause
+                ai_clause_ids = ev.get("clauseIds")
+                if ai_clause_ids is None:
+                    ai_clause_ids = [ev.get("clauseId")] if ev.get("clauseId") else []
+                ai_clause_ids = [int(x) for x in ai_clause_ids if x is not None and str(x).strip()]
+                ai_clause_id = str(ai_clause_ids[0]) if ai_clause_ids else str(ev.get("clauseId", ""))
                 db_clause_id = clause_map.get(ai_clause_id)
-                print(f"[Debug] Linking Event {ev.get('eventId')} (clauseId={ai_clause_id}) -> DB Clause {db_clause_id}")
+                print(f"[Debug] Linking Event {ev.get('eventId')} (clauseIds={ai_clause_ids}) -> DB Clause {db_clause_id}")
                 
                 event_data = {
                     "passage": {"connect": {"id": passage_id}},
@@ -709,6 +860,8 @@ async def _save_phase2_data(db, passage_id: str, analysis: dict) -> dict:
                     "narrativeFunction": ev.get("narrativeFunction"),
                 }
                 
+                if ai_clause_ids:
+                    event_data["unitClauseIds"] = Json(ai_clause_ids)
                 if db_clause_id:
                     event_data["clause"] = {"connect": {"id": db_clause_id}}
 
@@ -931,7 +1084,12 @@ async def _save_phase2_data_streaming(db, passage_id: str, analysis: dict):
     # Save Events with progress
     for idx, ev in enumerate(events_list):
         try:
-            ai_clause_id = str(ev.get("clauseId", ""))
+            # Support clauseIds (array) for display units, or clauseId (string) for single clause
+            ai_clause_ids = ev.get("clauseIds")
+            if ai_clause_ids is None:
+                ai_clause_ids = [ev.get("clauseId")] if ev.get("clauseId") else []
+            ai_clause_ids = [int(x) for x in ai_clause_ids if x is not None and str(x).strip()]
+            ai_clause_id = str(ai_clause_ids[0]) if ai_clause_ids else str(ev.get("clauseId", ""))
             db_clause_id = clause_map.get(ai_clause_id)
             event_id_str = ev.get("eventId", ev.get("id", f"e{idx+1}"))
             
@@ -945,6 +1103,8 @@ async def _save_phase2_data_streaming(db, passage_id: str, analysis: dict):
                 "narrativeFunction": ev.get("narrativeFunction"),
             }
             
+            if ai_clause_ids:
+                event_data["unitClauseIds"] = Json(ai_clause_ids)
             if db_clause_id:
                 event_data["clause"] = {"connect": {"id": db_clause_id}}
             
