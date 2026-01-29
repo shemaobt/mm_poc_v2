@@ -44,25 +44,69 @@ class PericopeWithLockResponse(BaseModel):
     lock: Optional[LockInfo] = None
 
 
+class ContributorItem(BaseModel):
+    id: str
+    username: str
+
+
+@router.get("/contributors", response_model=List[ContributorItem])
+async def list_contributors(current_user: dict = Depends(get_current_approved_user)):
+    """
+    List users who have at least one passage (for filtering pericopes by "done by user").
+    Any authenticated user can call this to choose whose work to view.
+    """
+    db = get_db()
+    passages = await db.passage.find_many(
+        where={"userId": {"not": None}},
+        distinct=["userId"],
+    )
+    user_ids = [p.userId for p in passages if p.userId]
+    if not user_ids:
+        return []
+    users = await db.user.find_many(
+        where={"id": {"in": user_ids}},
+        select={"id": True, "username": True},
+        order={"username": "asc"},
+    )
+    return [ContributorItem(id=u.id, username=u.username) for u in users]
+
+
 @router.get("", response_model=List[PericopeWithLockResponse])
 async def list_pericopes(
     book: Optional[str] = Query(None, description="Filter by book name"),
     search: Optional[str] = Query(None, description="Search by reference"),
+    created_by_user_id: Optional[str] = Query(None, description="Only pericopes that have a passage created by this user"),
     limit: int = Query(100, le=500, description="Max results to return"),
 ):
     """
     List available pericopes with optional filtering.
     Includes lock information for each pericope.
+    When created_by_user_id is set, only returns pericopes that have at least one passage by that user (view-only filter).
     """
     db = get_db()
     
     where = {}
     
+    if created_by_user_id:
+        refs_result = await db.passage.find_many(
+            where={"userId": created_by_user_id},
+            distinct=["reference"],
+        )
+        ref_list = [p.reference for p in refs_result]
+        if not ref_list:
+            return []
+        where["reference"] = {"in": ref_list}
+    
     if book:
         where["book"] = book
     
     if search:
-        where["reference"] = {"contains": search, "mode": "insensitive"}
+        if "reference" in where:
+            # Combine: reference in ref_list AND contains search
+            ref_constraint = where["reference"]
+            where = {"AND": [where, {"reference": {"contains": search, "mode": "insensitive"}}]}
+        else:
+            where["reference"] = {"contains": search, "mode": "insensitive"}
     
     pericopes = await db.pericope.find_many(
         where=where,
