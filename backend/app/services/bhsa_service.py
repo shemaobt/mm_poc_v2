@@ -194,6 +194,10 @@ def extract_lemmas(words: List, F) -> List[str]:
 # ============================================================
 # BHSA SERVICE CLASS
 # ============================================================
+# Passage fetch is clause-by-clause from BHSA: we use BHSA clause nodes
+# as the unit, never word nodes. The otype for that unit must be "clause".
+BHSA_PASSAGE_UNIT_OTYPE = "clause"
+
 
 class BHSAService:
     """Service for accessing BHSA data using text-fabric"""
@@ -304,8 +308,11 @@ class BHSAService:
     
     def extract_passage(self, book: str, chapter: int, start_verse: int, end_verse: int) -> Dict:
         """
-        Extract passage data from BHSA
-        Functional composition of pure functions
+        Extract passage data from BHSA by verse range, then by clause.
+
+        Uses BHSA/ETCBC clause nodes (L.d(verse_node, otype="clause")), not words.
+        Each row is one BHSA clause; some clauses are single-word (e.g. short
+        imperatives like "Go", "return")—that is expected ETCBC annotation.
         """
         if not self._is_loaded:
             raise RuntimeError("BHSA not loaded")
@@ -331,9 +338,8 @@ class BHSAService:
             
             actual_end_verse = verse_num
             
-            # Get clauses in verse
-            clause_nodes = L.d(verse_node, otype="clause")
-            
+            # Fetch clause-by-clause from BHSA: use clause nodes only (not words).
+            clause_nodes = L.d(verse_node, otype=BHSA_PASSAGE_UNIT_OTYPE)
             for clause_node in clause_nodes:
                 clause_data = self._extract_clause_data(
                     clause_node, verse_num, clause_id, prev_clause_type, F, L, T
@@ -355,15 +361,19 @@ class BHSAService:
         }
     
     def _extract_clause_data(
-        self, clause_node, verse_num: int, clause_id: int, 
+        self, clause_node, verse_num: int, clause_id: int,
         prev_type: Optional[str], F, L, T
     ) -> Dict:
-        """Extract data for a single clause - pure transformation"""
-        # Get clause text and type
+        """
+        Extract data for a single BHSA clause node.
+        Input must be a clause node (otype='clause'); we get words only as
+        children of this clause for gloss/verb, not as top-level units.
+        """
+        # Clause-level: text and type from the BHSA clause node
         clause_text = T.text(clause_node)
         clause_type = F.typ.v(clause_node) or "Unknown"
-        
-        # Get words and build gloss
+
+        # Words only as children of this clause (for gloss/verb), not iterating words as clauses
         word_nodes = L.d(clause_node, otype="word")
         glosses = []
         for w in word_nodes:

@@ -9,6 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Depends
 from pydantic import BaseModel
 
+from prisma import Json
+
 from app.services.bhsa_service import get_bhsa_service, parse_reference
 from app.core.database import get_db
 
@@ -120,15 +122,17 @@ async def upload_bhsa_data(
 
 
 @router.get("/passage")
-async def fetch_passage(ref: str, skip_translate: bool = False, db = Depends(get_db)):
+async def fetch_passage(ref: str, skip_translate: bool = False, force_merge: bool = False, db = Depends(get_db)):
     """
     Fetch passage data from BHSA and sync with DB for translations.
     Triggers AI translation if not present in DB (unless skip_translate=true).
     
     Args:
         ref: Biblical reference, e.g., "Ruth 1:1-6"
-        skip_translate: If true, skip auto-translation (useful for preview)
+        skip_translate: If true, skip auto-translation (useful for preview). AI clause-merge also runs only when skip_translate=false.
+        force_merge: If true, re-run AI clause grouping even when stored. Otherwise use stored display_units when available.
     """
+    print(f"[BHSA] GET /passage ref={ref!r} skip_translate={skip_translate} force_merge={force_merge}")
     bhsa_service = get_bhsa_service()
     
     if not bhsa_service.is_loaded():
@@ -141,25 +145,46 @@ async def fetch_passage(ref: str, skip_translate: bool = False, db = Depends(get
         # 1. Parse reference
         book, chapter, start_verse, end_verse = parse_reference(ref)
         
-        # 2. Extract passage from TF (Source of Truth for Structure)
+        # 2. Extract passage from BHSA clause-by-clause (Source of Truth for Structure)
+        # Each item in passage_data["clauses"] is one BHSA clause node, not one word.
         passage_data = bhsa_service.extract_passage(
             book, chapter, start_verse, end_verse
         )
-        
-        # 3. FAST DB SYNC
-        # We need to ensure this passage exists in DB to store translations
-        # Check if exists
+
+        # 2b. Clause grouping (display_units): use stored when available, else run AI merge.
+        # Only regenerate when force_merge=true or passage has no stored displayUnits.
         passage = await db.passage.find_unique(
             where={"reference": passage_data["reference"]},
             include={"clauses": True}
         )
-        
-        # If not, create it (lazy sync)
+        stored_display_units = passage.displayUnits if passage and hasattr(passage, 'displayUnits') and passage.displayUnits else None
+
+        if stored_display_units and not force_merge:
+            passage_data["display_units"] = stored_display_units
+            merged_count = sum(1 for u in stored_display_units if u.get("merged") and len(u.get("clause_ids", [])) > 1)
+            print(f"[BHSA] passage fetch ref={ref}: using stored display_units ({len(stored_display_units)} units, {merged_count} merged).")
+        elif not skip_translate and os.getenv("ANTHROPIC_API_KEY"):
+            try:
+                from app.services.ai_service import AIService
+                display_units = await AIService.suggest_clause_merges(passage_data, os.getenv("ANTHROPIC_API_KEY"))
+                passage_data["display_units"] = display_units
+                merged_count = sum(1 for u in display_units if u.get("merged") and len(u.get("clause_ids", [])) > 1)
+                print(f"[BHSA] passage fetch ref={ref}: AI merge ran, {len(display_units)} display units, {merged_count} merged groups.")
+            except Exception as e:
+                print(f"[Merge] AI merge step failed: {e}, using one unit per clause.")
+                passage_data["display_units"] = [{"clause_ids": [c["clause_id"]], "merged": False} for c in passage_data["clauses"]]
+        else:
+            passage_data["display_units"] = [{"clause_ids": [c["clause_id"]], "merged": False} for c in passage_data["clauses"]]
+            print(f"[BHSA] passage fetch ref={ref}: no AI merge (key={bool(os.getenv('ANTHROPIC_API_KEY'))}), {len(passage_data['clauses'])} clauses as {len(passage_data['display_units'])} units.")
+
+        # 3. FAST DB SYNC
+        # We need to ensure this passage exists in DB to store translations
         if not passage:
             print(f"[Sync] Creating new passage in DB: {passage_data['reference']}")
             passage = await db.passage.create(
                 data={
                     "reference": passage_data["reference"],
+                    "displayUnits": Json(passage_data["display_units"]),
                 }
             )
             
@@ -184,6 +209,12 @@ async def fetch_passage(ref: str, skip_translate: bool = False, db = Depends(get
             passage = await db.passage.find_unique(
                 where={"id": passage.id},
                 include={"clauses": True}
+            )
+        elif passage and (stored_display_units is None or force_merge) and passage_data.get("display_units"):
+            # Persist display_units: passage had none, or user explicitly refetched (force_merge)
+            await db.passage.update(
+                where={"id": passage.id},
+                data={"displayUnits": Json(passage_data["display_units"])}
             )
 
         # 4. Check/Fetch Translations
