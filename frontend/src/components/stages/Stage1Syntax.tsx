@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { usePassageStore } from '../../stores/passageStore'
-import { bhsaAPI, passagesAPI, pericopesAPI, Pericope } from '../../services/api'
+import { bhsaAPI, passagesAPI, pericopesAPI, Pericope, PericopeContributor } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import AIProcessingModal from '../common/AIProcessingModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card'
@@ -43,10 +43,11 @@ const stripPartialVerseIndicators = (reference: string): string => {
 }
 
 function Stage1Syntax() {
-    const { 
-        passageData, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError, 
+    const {
+        passageData, readOnly, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError,
         clearPassage, discardSession,
-        checkedClauses, setCheckedClauses, toggleClauseCheck
+        checkedClauses, setCheckedClauses, toggleClauseCheck,
+        setEvents
     } = usePassageStore()
     const [reference, setReference] = useState('')
     const [loadingMessage, setLoadingMessage] = useState('')
@@ -59,7 +60,7 @@ function Stage1Syntax() {
     // Lock state
     const [currentLock, setCurrentLock] = useState<string | null>(null) // Reference of currently held lock
     const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    
+
     // Preview mode: show skeleton without locking until user clicks "Start"
     const [previewData, setPreviewData] = useState<{ reference: string; clauseCount: number; mainline: number; background: number } | null>(null)
     const [isPreviewMode, setIsPreviewMode] = useState(false)
@@ -129,6 +130,8 @@ function Stage1Syntax() {
     const [books, setBooks] = useState<string[]>([])
     const [selectedBook, setSelectedBook] = useState<string>('')
     const [searchTerm, setSearchTerm] = useState('')
+    const [filterByUser, setFilterByUser] = useState<string>('') // '' = All, 'mine' = current user, or user id
+    const [contributors, setContributors] = useState<PericopeContributor[]>([])
     const [showDropdown, setShowDropdown] = useState(false)
     const [selectedPericope, setSelectedPericope] = useState<Pericope | null>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -145,6 +148,7 @@ function Stage1Syntax() {
 
     // Check if user has an existing lock and restore the session
     const checkAndRestoreUserLock = async () => {
+        if (readOnly) return
         try {
             const locks = await pericopesAPI.getLocks()
             const myLock = locks.find(lock => lock.userId === user?.id)
@@ -156,7 +160,7 @@ function Stage1Syntax() {
                 setSearchTerm(myLock.pericopeRef)
                 setIsPreviewMode(false) // Skip preview, they already started
                 setPreviewData(null)
-                
+
                 // Find the pericope in the list and select it
                 const pericopes = await pericopesAPI.list({ search: myLock.pericopeRef, limit: 10 })
                 const matchingPericope = pericopes.find(p => p.reference === myLock.pericopeRef)
@@ -175,13 +179,13 @@ function Stage1Syntax() {
                         console.error('Heartbeat failed:', err)
                     }
                 }, 30000)
-                
+
                 // Auto-fetch the passage data if not already loaded or different
                 if (!passageData || passageData.reference !== myLock.pericopeRef) {
                     toast.info('Restoring your session', {
                         description: `You were working on ${myLock.pericopeRef}`
                     })
-                    
+
                     // Fetch the passage directly (no preview needed, already locked)
                     try {
                         setLoading(true)
@@ -193,7 +197,8 @@ function Stage1Syntax() {
                                 id: data.id || data.passage_id,
                                 reference: data.reference,
                                 source_lang: data.source_lang || 'Hebrew',
-                                clauses: data.clauses
+                                clauses: data.clauses,
+                                display_units: data.display_units
                             })
                         }
                     } catch (err) {
@@ -229,10 +234,14 @@ function Stage1Syntax() {
         return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [])
 
-    // Fetch pericopes when book or search changes
+    // Fetch pericopes when book, search, or user filter changes
     useEffect(() => {
         fetchPericopes()
-    }, [selectedBook, searchTerm])
+    }, [selectedBook, searchTerm, filterByUser])
+
+    useEffect(() => {
+        fetchContributors()
+    }, [])
 
     const fetchBooks = async () => {
         try {
@@ -243,11 +252,22 @@ function Stage1Syntax() {
         }
     }
 
+    const fetchContributors = async () => {
+        try {
+            const list = await pericopesAPI.getContributors()
+            setContributors(list)
+        } catch (err) {
+            console.error('Failed to fetch contributors:', err)
+        }
+    }
+
     const fetchPericopes = async () => {
         try {
-            const params: { book?: string; search?: string; limit?: number } = { limit: 50 }
+            const params: { book?: string; search?: string; limit?: number; created_by_user_id?: string } = { limit: 50 }
             if (selectedBook) params.book = selectedBook
             if (searchTerm) params.search = searchTerm
+            if (filterByUser === 'mine' && user?.id) params.created_by_user_id = user.id
+            else if (filterByUser && filterByUser !== 'mine') params.created_by_user_id = filterByUser
             const pericopeList = await pericopesAPI.list(params)
             setPericopes(pericopeList)
         } catch (err) {
@@ -263,7 +283,7 @@ function Stage1Syntax() {
             })
             return
         }
-        
+
         // Check if has partial verse indicators - warn but allow
         if (hasPartialVerseIndicator(pericope.reference)) {
             const cleanRef = stripPartialVerseIndicators(pericope.reference)
@@ -272,7 +292,7 @@ function Stage1Syntax() {
                 duration: 5000
             })
         }
-        
+
         setSelectedPericope(pericope)
         setReference(pericope.reference)
         setSearchTerm(pericope.reference)
@@ -368,11 +388,11 @@ function Stage1Syntax() {
     // Fetch passage in preview mode (no locking yet)
     const handleFetchPassage = async () => {
         if (!reference.trim()) return
-        
+
         // Strip partial verse indicators if present (e.g., "Ruth 1:8-19a" -> "Ruth 1:8-19")
         const cleanReference = stripPartialVerseIndicators(reference)
         const hadPartialVerse = cleanReference !== reference
-        
+
         if (hadPartialVerse) {
             toast.warning('Using Full Verses', {
                 description: `Partial verse reference adjusted to: "${cleanReference}"`,
@@ -387,14 +407,14 @@ function Stage1Syntax() {
             setLoading(true)
             setLoadingMessage('Fetching passage preview from BHSA...')
             setError(null)
-            
+
             // Fetch the passage data for preview only (skip translation)
             const data = await bhsaAPI.fetchPassage(cleanReference, true)
 
             if (data.clauses && data.clauses.length > 0) {
                 const mainlineCount = data.clauses.filter((c: any) => c.is_mainline).length
                 const backgroundCount = data.clauses.filter((c: any) => !c.is_mainline).length
-                
+
                 // Store preview info
                 setPreviewData({
                     reference: data.reference,
@@ -404,7 +424,7 @@ function Stage1Syntax() {
                 })
                 setIsPreviewMode(true)
                 setLoadingMessage('')
-                
+
                 // Store full data in a temp ref for when user confirms
                 // We'll refetch on start to ensure fresh data
             } else {
@@ -420,11 +440,11 @@ function Stage1Syntax() {
             setLoading(false)
         }
     }
-    
+
     // Start analysis - lock the pericope and show full data
     const handleStartAnalysis = async () => {
         if (!reference.trim() || !previewData) return
-        
+
         // Use the clean reference (without partial verse indicators)
         const cleanReference = stripPartialVerseIndicators(reference)
 
@@ -433,17 +453,17 @@ function Stage1Syntax() {
             if (currentLock && currentLock !== cleanReference) {
                 await releaseLock(currentLock)
             }
-            
+
             // Try to acquire lock for this pericope (use clean reference)
             const lockAcquired = await acquireLock(cleanReference)
             if (!lockAcquired) {
                 return // Lock failed, user was notified
             }
-            
+
             setLoading(true)
             setLoadingMessage('Starting analysis...')
             setError(null)
-            
+
             // Fetch full passage data now that we have the lock
             const data = await bhsaAPI.fetchPassage(cleanReference)
 
@@ -452,7 +472,8 @@ function Stage1Syntax() {
                     id: data.id || data.passage_id,
                     reference: data.reference,
                     source_lang: data.source_lang || 'Hebrew',
-                    clauses: data.clauses
+                    clauses: data.clauses,
+                    display_units: data.display_units
                 })
                 setCheckedClauses(new Set()) // Reset checks for new passage
                 setIsPreviewMode(false)
@@ -470,7 +491,8 @@ function Stage1Syntax() {
                         id: persisted.id,
                         reference: data.reference,
                         source_lang: data.source_lang || 'Hebrew',
-                        clauses: data.clauses
+                        clauses: data.clauses,
+                        display_units: data.display_units
                     })
                     setCheckedClauses(new Set())
                     setIsPreviewMode(false)
@@ -490,7 +512,7 @@ function Stage1Syntax() {
             setLoading(false)
         }
     }
-    
+
     // Cancel preview and go back to selection
     const handleCancelPreview = () => {
         setPreviewData(null)
@@ -508,6 +530,29 @@ function Stage1Syntax() {
     const mainlineClauses = passageData?.clauses?.filter(c => c.is_mainline) || []
 
     const backgroundClauses = passageData?.clauses?.filter(c => !c.is_mainline) || []
+
+    // Display units: AI may merge adjacent clauses for readability. One row per unit; show "AI merged" when merged.
+    const clauseById = useMemo(() => {
+        const map: Record<number, any> = {}
+        passageData?.clauses?.forEach((c: any) => { map[c.clause_id] = c })
+        return map
+    }, [passageData?.clauses])
+    const displayUnits = useMemo(() => {
+        const clauses = passageData?.clauses ?? []
+        const units = passageData?.display_units
+        if (units?.length && units.every((u: any) => u?.clause_ids?.length)) {
+            const allIds = new Set(clauses.map((c: any) => c.clause_id))
+            const covered = new Set<number>()
+            for (const u of units) {
+                for (const id of u.clause_ids) {
+                    if (allIds.has(id)) covered.add(id)
+                }
+            }
+            if (covered.size === allIds.size) return units
+        }
+        return clauses.map((c: any) => ({ clause_ids: [c.clause_id], merged: false }))
+    }, [passageData?.clauses, passageData?.display_units])
+    const mergedUnitsCount = displayUnits.filter((u: any) => u.merged && u.clause_ids?.length > 1).length
 
     return (
         <div className="space-y-6">
@@ -535,6 +580,13 @@ function Stage1Syntax() {
                 )}
             </div>
 
+            {/* View-only banner when opened from My Meaning Maps */}
+            {readOnly && (
+                <div className="bg-azul/10 border border-azul/30 text-verde px-4 py-2 rounded-lg flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-azul" />
+                    <span className="font-medium">View only</span> — You can browse all stages but cannot edit this map.
+                </div>
+            )}
 
             {/* Error message */}
             {error && (
@@ -551,7 +603,8 @@ function Stage1Syntax() {
                 </div>
             )}
 
-            {/* Passage search */}
+            {/* Passage search (hidden in view-only mode) */}
+            {!readOnly && (
             <Card>
                 <CardHeader>
                     <CardTitle className="text-lg">Select a Pericope</CardTitle>
@@ -560,7 +613,7 @@ function Stage1Syntax() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="flex gap-3 items-start">
+                    <div className="flex gap-3 items-start flex-wrap">
                         {/* Book filter */}
                         <div className="w-48">
                             <label className="text-xs text-verde/60 mb-1 block">Filter by Book</label>
@@ -574,6 +627,26 @@ function Stage1Syntax() {
                                     <option value="">All Books</option>
                                     {books.map((book) => (
                                         <option key={book} value={book}>{book}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50 pointer-events-none" />
+                            </div>
+                        </div>
+
+                        {/* Show pericopes by user (view only) */}
+                        <div className="w-48">
+                            <label className="text-xs text-verde/60 mb-1 block">Show pericopes by</label>
+                            <div className="relative">
+                                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50" />
+                                <select
+                                    value={filterByUser}
+                                    onChange={(e) => setFilterByUser(e.target.value)}
+                                    className="w-full pl-10 pr-8 py-2 border border-areia-escuro/20 rounded-md bg-white text-preto text-sm focus:outline-none focus:ring-2 focus:ring-telha/20 focus:border-telha appearance-none cursor-pointer"
+                                >
+                                    <option value="">All users</option>
+                                    <option value="mine">Mine only</option>
+                                    {contributors.map((c) => (
+                                        <option key={c.id} value={c.id}>{c.username}</option>
                                     ))}
                                 </select>
                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-verde/50 pointer-events-none" />
@@ -607,7 +680,7 @@ function Stage1Syntax() {
                                         const isLockedByMe = !!(pericope.lock && pericope.lock.userId === user?.id)
                                         const hasPartialVerse = hasPartialVerseIndicator(pericope.reference)
                                         const isDisabled = isLockedByOther // Only locked items are disabled, not partial verses
-                                        
+
                                         return (
                                             <button
                                                 key={pericope.id}
@@ -685,6 +758,7 @@ function Stage1Syntax() {
                     )}
                 </CardContent>
             </Card>
+            )}
 
             {/* Warning for duplicates */}
             {duplicateWarning && !passageData && !isPreviewMode && (
@@ -722,7 +796,7 @@ function Stage1Syntax() {
                                 <div className="text-sm text-verde-claro/80">Background</div>
                             </div>
                         </div>
-                        
+
                         {/* Skeleton clause preview */}
                         <div className="space-y-2 mb-6">
                             {[...Array(Math.min(3, previewData.clauseCount))].map((_, i) => (
@@ -764,7 +838,7 @@ function Stage1Syntax() {
                                 Start Analysis
                             </Button>
                         </div>
-                        
+
                         <p className="text-center text-xs text-verde/50 mt-4">
                             Starting will lock this pericope for your exclusive use
                         </p>
@@ -822,12 +896,62 @@ function Stage1Syntax() {
                         <div>
                             <CardTitle className="text-xl text-telha">{passageData.reference}</CardTitle>
                             <CardDescription>
-                                Total Clauses: {passageData.clauses?.length || 0} •
+                                Total Clauses: {passageData.clauses?.length || 0}
+                                {displayUnits.length !== (passageData.clauses?.length || 0) && (
+                                    <> • Display rows: {displayUnits.length}</>
+                                )}
+                                {' • '}
                                 Mainline: {mainlineClauses.length} •
                                 Background: {backgroundClauses.length}
                             </CardDescription>
+                            <p className="text-xs text-verde/50 mt-1">
+                                Clauses come from BHSA (ETCBC). Some are single-word (e.g. short imperatives)—that is expected.
+                            </p>
+                            {mergedUnitsCount > 0 && (
+                                <p className="text-xs text-telha/80 mt-1 flex items-center gap-1">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    AI merged {mergedUnitsCount} group{mergedUnitsCount !== 1 ? 's' : ''} of adjacent clauses for readability. Merged rows are marked below.
+                                </p>
+                            )}
                         </div>
+                        {!readOnly && (
                         <div className="flex gap-2">
+                            <Button
+                                onClick={async () => {
+                                    if (!passageData?.reference || loading) return
+                                    const cleanRef = stripPartialVerseIndicators(passageData.reference)
+                                    setLoading(true)
+                                    setLoadingMessage('Regenerating clause grouping...')
+                                    try {
+                                        const data = await bhsaAPI.fetchPassage(cleanRef, false, true)
+                                        setPassageData({ ...passageData, clauses: data.clauses, display_units: data.display_units })
+                                        toast.success('Clause grouping updated')
+                                        // Re-analyze events so they match the new grouping (group before & after)
+                                        setLoadingMessage('Re-analyzing events to match new grouping...')
+                                        try {
+                                            const phase2 = await bhsaAPI.aiPhase2(cleanRef, '')
+                                            if (phase2?.data?.events) {
+                                                setEvents(phase2.data.events)
+                                                toast.success('Events updated to match new grouping')
+                                            }
+                                        } catch (phase2Err: any) {
+                                            toast.warning('Grouping updated; re-run AI Analyze to refresh events')
+                                        }
+                                    } catch (err: any) {
+                                        toast.error(err.response?.data?.detail || 'Failed to refetch grouping')
+                                    } finally {
+                                        setLoading(false)
+                                        setLoadingMessage('')
+                                    }
+                                }}
+                                variant="outline"
+                                className="gap-2"
+                                disabled={loading || !passageData?.reference}
+                                title="Re-run AI to regenerate clause grouping (stored grouping will be replaced)"
+                            >
+                                <Sparkles className="w-4 h-4" />
+                                Refetch grouping
+                            </Button>
                             <Button
                                 onClick={() => setShowDiscardConfirm(true)}
                                 variant="outline"
@@ -864,51 +988,80 @@ function Stage1Syntax() {
                                 AI Analyze
                             </Button>
                         </div>
+                        )}
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-3">
-                            {passageData.clauses?.map((clause: any) => (
-                                <div
-                                    key={clause.clause_id}
-                                    className={`clause-card ${clause.is_mainline ? 'clause-card-mainline' : 'clause-card-background'}`}
-                                >
-                                    <div className="flex items-start justify-between gap-4">
-                                        {/* Checkbox for Read Check */}
-                                        <div className="pt-1">
-                                            <input
-                                                type="checkbox"
-                                                className="w-5 h-5 rounded border-verde/30 text-telha focus:ring-telha cursor-pointer"
-                                                checked={checkedClauses.has(clause.clause_id?.toString() || clause.id?.toString())}
-                                                onChange={() => toggleClauseCheck(clause.clause_id?.toString() || clause.id?.toString())}
-                                            />
-                                        </div>
-
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <span className="text-xs font-medium text-verde/50">
-                                                    Clause {clause.verse} (v{clause.verse})
-                                                </span>
-                                                <Badge variant={clause.is_mainline ? 'warning' : 'success'}>
-                                                    {clause.is_mainline ? 'Mainline' : 'Background'}
-                                                </Badge>
+                            {displayUnits.map((unit: any) => {
+                                const ids = unit.clause_ids ?? []
+                                const clausesInUnit = ids.map((id: number) => clauseById[id]).filter(Boolean)
+                                const isMerged = unit.merged && clausesInUnit.length > 1
+                                const isMainline = clausesInUnit.some((c: any) => c.is_mainline)
+                                const unitKey = ids.join('-')
+                                const unitClauseIdStrs = ids.map((id: number) => String(id))
+                                const isUnitChecked = unitClauseIdStrs.length > 0 && unitClauseIdStrs.every((id: string) => checkedClauses.has(id))
+                                const handleUnitCheck = () => {
+                                    if (isUnitChecked) unitClauseIdStrs.forEach((id: string) => { if (checkedClauses.has(id)) toggleClauseCheck(id) })
+                                    else unitClauseIdStrs.forEach((id: string) => { if (!checkedClauses.has(id)) toggleClauseCheck(id) })
+                                }
+                                const combinedText = clausesInUnit.map((c: any) => c.text).filter(Boolean).join(' ')
+                                const combinedGloss = clausesInUnit.map((c: any) => c.gloss).filter(Boolean).join(' ')
+                                const combinedTranslation = clausesInUnit.map((c: any) => c.freeTranslation).filter(Boolean).join(' ')
+                                const verseLabel = clausesInUnit.length === 1 ? `v${clausesInUnit[0].verse}` : `v${Math.min(...clausesInUnit.map((c: any) => c.verse))}–${Math.max(...clausesInUnit.map((c: any) => c.verse))}`
+                                return (
+                                    <div
+                                        key={unitKey}
+                                        className={`clause-card ${isMainline ? 'clause-card-mainline' : 'clause-card-background'}`}
+                                    >
+                                        <div className="flex items-start justify-between gap-4">
+                                            {!readOnly && (
+                                            <div className="pt-1">
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-5 h-5 rounded border-verde/30 text-telha focus:ring-telha cursor-pointer"
+                                                    checked={isUnitChecked}
+                                                    onChange={handleUnitCheck}
+                                                />
                                             </div>
-                                            <p className="text-preto text-sm mb-2">{clause.gloss}</p>
-                                            {/* Free Translation */}
-                                            {clause.freeTranslation && (
-                                                <p className="text-telha text-sm mb-2 italic border-l-2 border-telha/20 pl-2">
-                                                    "{clause.freeTranslation}"
-                                                </p>
                                             )}
-                                            <p className="text-verde text-xs">
-                                                <strong>Verb:</strong> {clause.lemma_ascii || clause.lemma} ({clause.binyan || 'qal'}) - {clause.tense || 'perf'}
-                                            </p>
-                                        </div>
-                                        <div className="hebrew-text text-lg text-preto/80 font-serif min-w-[200px] text-right">
-                                            {clause.text}
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                                    <span className="text-xs font-medium text-verde/50">
+                                                        {clausesInUnit.length === 1 ? `Clause ${ids[0]} (${verseLabel})` : `Clauses ${ids[0]}–${ids[ids.length - 1]} (${verseLabel})`}
+                                                    </span>
+                                                    <Badge variant={isMainline ? 'warning' : 'success'}>
+                                                        {isMainline ? 'Mainline' : 'Background'}
+                                                    </Badge>
+                                                    {isMerged && (
+                                                        <Badge variant="outline" className="text-telha border-telha/40 bg-telha/5 text-xs" title="AI merged these adjacent clauses for readability">
+                                                            AI merged
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                <p className="text-preto text-sm mb-2">{combinedGloss || '—'}</p>
+                                                {combinedTranslation && (
+                                                    <p className="text-telha text-sm mb-2 italic border-l-2 border-telha/20 pl-2">
+                                                        "{combinedTranslation}"
+                                                    </p>
+                                                )}
+                                                {clausesInUnit.length === 1 && (clausesInUnit[0].lemma_ascii || clausesInUnit[0].lemma) && (
+                                                    <p className="text-verde text-xs">
+                                                        <strong>Verb:</strong> {clausesInUnit[0].lemma_ascii || clausesInUnit[0].lemma} ({clausesInUnit[0].binyan || 'qal'}) - {clausesInUnit[0].tense || 'perf'}
+                                                    </p>
+                                                )}
+                                                {clausesInUnit.length > 1 && (
+                                                    <p className="text-verde text-xs">
+                                                        {clausesInUnit.map((c: any) => c.lemma_ascii || c.lemma).filter(Boolean).join(' · ') || '—'}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="hebrew-text text-lg text-preto/80 font-serif min-w-[200px] text-right">
+                                                {combinedText || '—'}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     </CardContent>
                 </Card>
@@ -941,18 +1094,18 @@ function Stage1Syntax() {
                         <DialogDescription>
                             This will clear your current work session and return you to the passage selection.
                             <br /><br />
-                            <strong>Note:</strong> Data already saved to the database will not be deleted. 
+                            <strong>Note:</strong> Data already saved to the database will not be deleted.
                             You can reload the same passage to continue working on it.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2 sm:gap-0">
-                        <Button 
-                            variant="outline" 
+                        <Button
+                            variant="outline"
                             onClick={() => setShowDiscardConfirm(false)}
                         >
                             Cancel
                         </Button>
-                        <Button 
+                        <Button
                             variant="destructive"
                             onClick={() => {
                                 // Release lock if held
