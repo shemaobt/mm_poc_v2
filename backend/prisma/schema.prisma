@@ -63,7 +63,10 @@ model Passage {
   thematicSpine  String?  @db.Text // One-sentence summary
   isComplete     Boolean  @default(false) // Analysis complete
   completedAt    DateTime? // When analysis was completed
-  
+
+  // AI-discovered clause grouping for Stage 1 display (e.g. merged rows). Stored so we don't re-run AI merge on every fetch.
+  displayUnits   Json?    // [{ clause_ids: [1,2,3], merged: true }, ...]
+
   // Stage 6: Tripod Studio Approvals
   validatorStatus ApprovalStatus @default(PENDING)
   mentorStatus    ApprovalStatus @default(WAITING)
@@ -179,7 +182,8 @@ model Event {
   id                  String   @id @default(uuid())
   passageId           String
   eventId             String // e.g., "e1", "e2"
-  clauseId            String?
+  clauseId            String?  // Primary clause (first in unit) for FK
+  unitClauseIds       Json?   // [1,2,3] - clause_ids in this display unit; aligns with Stage 1 grouping
   category            String // STATE, MOTION, ACTION, TRANSFER, SPEECH, INTERNAL, PROCESS, RITUAL, META
   eventCore           String // e.g., "go", "say", "be"
   discourseFunction   String? // mainline, background, setting, peak, closing
@@ -484,6 +488,25 @@ model BhsaVerse {
 
   @@unique([book, chapter, verse])
   @@map("bhsa_verses")
+}
+
+// ============================================================
+// FIELD OPTIONS (Dynamic dropdown options)
+// ============================================================
+
+model FieldOption {
+  id        String   @id @default(uuid())
+  category  String   // e.g., "participant_type", "semantic_role", "event_category"
+  value     String   // The actual value stored in entities
+  label     String   // Display label (can differ from value)
+  isDefault Boolean  @default(false)  // Seed data vs user-created
+  sortOrder Int      @default(0)      // For ordering options
+  createdBy String?  // User ID who created it (null for seeded)
+  createdAt DateTime @default(now())
+  
+  @@unique([category, value])
+  @@index([category])
+  @@map("field_options")
 }
 
 // ============================================================
