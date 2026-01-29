@@ -21,11 +21,19 @@ export interface Clause {
     freeTranslation?: string
 }
 
+/** One display unit in Stage 1: either a single clause or AI-merged adjacent clauses */
+export interface DisplayUnit {
+    clause_ids: number[]
+    merged?: boolean
+}
+
 export interface PassageData {
     id: string  // UUID from backend
     reference: string
     source_lang: string
     clauses: Clause[]
+    /** When present, Stage 1 shows one row per unit; merged units show "AI merged (Clauses X–Y)" */
+    display_units?: DisplayUnit[]
 }
 
 export interface Participant {
@@ -177,6 +185,8 @@ export interface KeyTerm {
 export interface EventBase {
     eventId: string
     clauseId?: string
+    /** Clause IDs (1-based) in this display unit; aligns with Stage 1 grouping */
+    unitClauseIds?: number[]
     category: string
     eventCore: string
     discourseFunction?: string

@@ -218,9 +218,9 @@ export const bhsaAPI = {
         return response.data
     },
 
-    fetchPassage: async (reference: string, skipTranslate: boolean = false) => {
+    fetchPassage: async (reference: string, skipTranslate: boolean = false, forceMerge: boolean = false) => {
         const response = await apiClient.get('/api/bhsa/passage', {
-            params: { ref: reference, skip_translate: skipTranslate },
+            params: { ref: reference, skip_translate: skipTranslate, force_merge: forceMerge },
         })
         return response.data
     },
@@ -291,9 +291,19 @@ export interface UserProgress {
     currentLocks: PericopeLockInfo[]
 }
 
+export interface PericopeContributor {
+    id: string
+    username: string
+}
+
 export const pericopesAPI = {
-    list: async (params?: { book?: string; search?: string; limit?: number }): Promise<Pericope[]> => {
+    list: async (params?: { book?: string; search?: string; limit?: number; created_by_user_id?: string }): Promise<Pericope[]> => {
         const response = await apiClient.get('/api/pericopes', { params })
+        return response.data
+    },
+
+    getContributors: async (): Promise<PericopeContributor[]> => {
+        const response = await apiClient.get('/api/pericopes/contributors')
         return response.data
     },
 
@@ -423,6 +433,44 @@ export const metricsAPI = {
         const response = await apiClient.get('/api/metrics/aggregate', { params })
         return response.data
     }
+}
+
+// ============================================================
+// OPTIONS API (Dynamic dropdown options)
+// ============================================================
+
+export interface FieldOption {
+    id: string
+    category: string
+    value: string
+    label: string
+    isDefault: boolean
+    sortOrder: number
+    createdBy: string | null
+}
+
+export const optionsAPI = {
+    list: async (category: string): Promise<FieldOption[]> => {
+        const response = await apiClient.get(`/api/options/${category}`)
+        return response.data
+    },
+
+    create: async (category: string, value: string, label?: string): Promise<FieldOption> => {
+        const response = await apiClient.post(`/api/options/${category}`, { 
+            value, 
+            label: label || value 
+        })
+        return response.data
+    },
+
+    getCategories: async (): Promise<string[]> => {
+        const response = await apiClient.get('/api/options/categories')
+        return response.data
+    },
+
+    delete: async (category: string, optionId: string): Promise<void> => {
+        await apiClient.delete(`/api/options/${category}/${optionId}`)
+    },
 }
 
 export default apiClient
