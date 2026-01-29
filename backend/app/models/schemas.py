@@ -216,6 +216,7 @@ class EventResponse(EventBase):
     """Event response with all sub-models"""
     id: str
     passageId: str
+    unitClauseIds: Optional[List[int]] = None  # BHSA clause_ids for display unit; required for clause text in UI
     modifiers: Optional[EventModifierBase] = None
     speechAct: Optional[SpeechActBase] = None
     pragmatic: Optional[EventPragmaticBase] = None
@@ -271,6 +272,34 @@ class DiscourseRelationResponse(DiscourseRelationBase):
     passageId: str
     source: Optional[EventResponse] = None
     target: Optional[EventResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# FIELD OPTION MODELS
+# ============================================================
+
+class FieldOptionBase(BaseModel):
+    """Base field option model"""
+    category: str
+    value: str
+    label: str
+
+
+class FieldOptionCreate(BaseModel):
+    """Create field option - only value and optional label needed"""
+    value: str
+    label: Optional[str] = None  # Defaults to value if not provided
+
+
+class FieldOptionResponse(FieldOptionBase):
+    """Field option response"""
+    id: str
+    isDefault: bool
+    sortOrder: int
+    createdBy: Optional[str] = None
 
     class Config:
         from_attributes = True
