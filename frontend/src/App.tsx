@@ -17,6 +17,7 @@ import { Toaster, toast } from 'sonner'
 import { SidebarProvider, useSidebar } from './contexts/SidebarContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { usePassageStore } from './stores/passageStore'
+import { passagesAPI, bhsaAPI } from './services/api'
 import './styles/main.css'
 
 export type ViewType = 'analysis' | 'saved-maps' | 'admin-dashboard'
@@ -121,7 +122,23 @@ function MainApp() {
     const { isAdmin } = useAuth()
 
     // Get validation state from store
-    const { participants, relations, events, validated, passageData } = usePassageStore()
+    const {
+        participants,
+        relations,
+        events,
+        validated,
+        passageData,
+        readOnly,
+        setPassageData,
+        setParticipants,
+        setRelations,
+        setEvents,
+        setDiscourse,
+        clearPassage,
+        discardSession,
+        setReadOnly,
+        validateAll,
+    } = usePassageStore()
 
     const stages = [
         { id: 1, component: Stage1Syntax },
@@ -174,14 +191,94 @@ function MainApp() {
         }
     }
 
+    const handleOpenPassage = async (passageId: string, readOnly: boolean) => {
+        const id = String(passageId ?? '').trim()
+        if (!id) {
+            toast.error('Invalid passage')
+            return
+        }
+        try {
+            discardSession()
+            setReadOnly(readOnly)
+            const passage = await passagesAPI.get(id)
+            // All data below is for this passage id only (chosen pericope); no session/lock mixing
+            if (String(passage?.id ?? '') !== id) {
+                toast.error('Passage data mismatch')
+                return
+            }
+            const clauses = (passage.clauses || []).map((c: any) => ({
+                clause_id: c.clauseIndex ?? c.clause_index ?? 0,
+                verse: c.verse,
+                text: c.text,
+                gloss: c.gloss,
+                clause_type: c.clauseType ?? c.clause_type ?? '',
+                is_mainline: c.isMainline ?? c.is_mainline ?? false,
+                has_ki: c.hasKi ?? c.has_ki ?? false,
+                chain_position: c.chainPosition ?? c.chain_position,
+                lemma: c.lemma,
+                lemma_ascii: c.lemmaAscii ?? c.lemma_ascii,
+                binyan: c.binyan,
+                tense: c.tense,
+                subjects: c.subjects,
+                objects: c.objects,
+                names: c.names,
+                freeTranslation: c.freeTranslation ?? c.free_translation,
+            }))
+            const passageDataPayload = {
+                id: passage.id,
+                reference: passage.reference,
+                source_lang: passage.sourceLang ?? passage.source_lang ?? 'hbo',
+                clauses,
+                display_units: passage.displayUnits ?? passage.display_units ?? undefined,
+            }
+            setReadOnly(readOnly)
+            setPassageData(passageDataPayload)
+            setCurrentView('analysis')
+            setCurrentStage(1)
+            toast.success(readOnly ? 'Opened in view-only mode' : 'Passage loaded')
+
+            const [participantsResult, relationsResult, eventsResult, discourseResult] = await Promise.allSettled([
+                bhsaAPI.getParticipants(id),
+                bhsaAPI.getRelations(id),
+                bhsaAPI.getEvents(id),
+                bhsaAPI.getDiscourse(id),
+            ])
+            const participantsList = participantsResult.status === 'fulfilled' && Array.isArray(participantsResult.value) ? participantsResult.value : []
+            const relationsList = relationsResult.status === 'fulfilled' && Array.isArray(relationsResult.value) ? relationsResult.value : []
+            const eventsList = eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value) ? eventsResult.value : []
+            const discourseList = discourseResult.status === 'fulfilled' && Array.isArray(discourseResult.value) ? discourseResult.value : []
+            const norm = (arr: any[], key = 'id') => arr.map((x: any) => ({ ...x, [key]: String(x[key] ?? '') }))
+            const normP = norm(participantsList)
+            const normR = norm(relationsList)
+            const normE = norm(eventsList)
+            const normD = norm(discourseList)
+            setParticipants(normP)
+            setRelations(normR)
+            setEvents(normE)
+            setDiscourse(normD)
+            const pIds = normP.map((p: any) => p.id).filter(Boolean)
+            const rIds = normR.map((r: any) => r.id).filter(Boolean)
+            const eIds = normE.map((e: any) => e.id).filter(Boolean)
+            const dIds = normD.map((d: any) => d.id).filter(Boolean)
+            if (pIds.length) validateAll('participants', pIds)
+            if (rIds.length) validateAll('relations', rIds)
+            if (eIds.length) validateAll('events', eIds)
+            if (dIds.length) validateAll('discourse', dIds)
+        } catch (err: any) {
+            const msg = err?.response?.data?.detail ?? err?.message ?? 'Failed to open passage'
+            console.error('Open passage failed:', err)
+            toast.error(typeof msg === 'string' ? msg : 'Passage not found or unavailable')
+        }
+    }
+
     const goToPrevious = () => {
         if (currentStage > 1) setCurrentStage(currentStage - 1)
     }
 
     const goToNext = () => {
         if (currentStage < 5) {
-            // Show warning but don't block navigation
-            if (!isStageValidated(currentStage)) {
+            // In view-only mode skip validation warning; otherwise show but don't block
+            if (!readOnly && !isStageValidated(currentStage)) {
                 toast.warning('Incomplete Validation', {
                     description: getValidationMessage(currentStage)
                 })
@@ -198,8 +295,8 @@ function MainApp() {
             return
         }
         
-        // Show warning if leaving incomplete stage but allow navigation
-        if (!isStageValidated(currentStage) && stage !== currentStage) {
+        // In view-only mode skip validation warning; otherwise show if leaving incomplete stage
+        if (!readOnly && !isStageValidated(currentStage) && stage !== currentStage) {
             toast.warning('Incomplete Validation', {
                 description: getValidationMessage(currentStage)
             })
@@ -209,6 +306,14 @@ function MainApp() {
     }
 
     const canProceed = isStageValidated(currentStage)
+
+    /** Go to editor home: clear current passage and show Stage 1 pericope selector (start new pericope). */
+    const goToEditorHome = () => {
+        clearPassage()
+        setReadOnly(false)
+        setCurrentView('analysis')
+        setCurrentStage(1)
+    }
 
     // Redirect non-admins away from dashboard
     if (currentView === 'admin-dashboard' && !isAdmin) {
@@ -220,11 +325,11 @@ function MainApp() {
         return (
             <SidebarProvider value={{ isCollapsed, setIsCollapsed }}>
                 <div className="min-h-screen bg-branco">
-                    <Sidebar currentView={currentView} onViewChange={setCurrentView} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
+                    <Sidebar currentView={currentView} onViewChange={setCurrentView} onEditorHome={goToEditorHome} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
                     <Header />
                     <ContentWrapper className="w-full">
                         <main className="max-w-6xl mx-auto px-6 py-8">
-                            <SavedMapsPage onBack={() => setCurrentView('analysis')} />
+                            <SavedMapsPage onBack={goToEditorHome} onOpenPassage={handleOpenPassage} />
                         </main>
                     </ContentWrapper>
                 </div>
@@ -236,7 +341,7 @@ function MainApp() {
         return (
             <SidebarProvider value={{ isCollapsed, setIsCollapsed }}>
                 <div className="min-h-screen bg-branco">
-                    <Sidebar currentView={currentView} onViewChange={setCurrentView} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
+                    <Sidebar currentView={currentView} onViewChange={setCurrentView} onEditorHome={goToEditorHome} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
                     <Header />
                     <ContentWrapper>
                         <main className="max-w-7xl mx-auto px-6 py-8">
@@ -252,7 +357,7 @@ function MainApp() {
     return (
         <SidebarProvider value={{ isCollapsed, setIsCollapsed }}>
             <div className="min-h-screen bg-branco pb-20">
-                <Sidebar currentView={currentView} onViewChange={setCurrentView} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
+                <Sidebar currentView={currentView} onViewChange={setCurrentView} onEditorHome={goToEditorHome} isCollapsed={isCollapsed} setIsCollapsed={setIsCollapsed} />
                 <Header />
                 <ContentWrapper>
                     <ProgressBar currentStage={currentStage} totalStages={5} onStageClick={handleStageClick} />
