@@ -6,7 +6,7 @@ import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { mapsAPI, passagesAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
-import { BookOpen, Download, Calendar, ArrowLeft, FileJson, Trash2, AlertTriangle, User } from 'lucide-react'
+import { BookOpen, Download, Calendar, ArrowLeft, FileJson, Trash2, AlertTriangle, User, Eye } from 'lucide-react'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -34,9 +34,10 @@ interface SavedMap {
 
 interface SavedMapsPageProps {
     onBack: () => void
+    onOpenPassage?: (passageId: string, readOnly: boolean) => void
 }
 
-export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
+export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPageProps) {
     const { user, isAdmin } = useAuth()
     const [maps, setMaps] = useState<SavedMap[]>([])
     const [loading, setLoading] = useState(true)
@@ -171,7 +172,10 @@ export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
                         <Card key={map.id} className="hover:shadow-lg transition-shadow">
                             <CardContent className="p-6">
                                 <div className="flex items-start justify-between mb-4">
-                                    <h3 className="text-lg font-semibold text-preto">
+                                    <h3
+                                        className="text-lg font-semibold text-preto cursor-pointer hover:text-telha"
+                                        onClick={() => onOpenPassage?.(String(map.id), true)}
+                                    >
                                         {map.reference}
                                     </h3>
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${map.isComplete
@@ -212,12 +216,22 @@ export default function SavedMapsPage({ onBack }: SavedMapsPageProps) {
                                     </div>
                                 )}
 
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
+                                    {onOpenPassage && (
+                                        <Button
+                                            onClick={() => onOpenPassage(String(map.id), true)}
+                                            variant="default"
+                                            className="gap-2 bg-telha hover:bg-telha/90"
+                                        >
+                                            <Eye className="w-4 h-4" />
+                                            Open
+                                        </Button>
+                                    )}
                                     <Button
                                         onClick={() => handleExport(map.id, map.reference)}
                                         disabled={exporting === map.id}
                                         variant="outline"
-                                        className="flex-1 gap-2"
+                                        className="flex-1 gap-2 min-w-0"
                                     >
                                         {exporting === map.id ? (
                                             <div className="animate-spin w-4 h-4 border-2 border-telha border-t-transparent rounded-full" />
