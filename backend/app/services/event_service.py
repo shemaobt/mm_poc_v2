@@ -45,106 +45,7 @@ class EventService:
         events.sort(key=natural_sort_key)
         
         # Transform to match frontend expectations
-        result = []
-        for ev in events:
-            ev_dict = {
-                "id": ev.id,
-                "passageId": ev.passageId,
-                "eventId": ev.eventId,
-                "clauseId": ev.clauseId,
-                "category": ev.category,
-                "eventCore": ev.eventCore,
-                "discourseFunction": ev.discourseFunction,
-                "chainPosition": ev.chainPosition,
-                "narrativeFunction": ev.narrativeFunction,
-                "roles": [{"role": r.role, "participantId": r.participantId} for r in (ev.roles or [])],
-            }
-            
-            # Add modifiers if present
-            if ev.modifiers:
-                ev_dict["modifiers"] = {
-                    "happened": ev.modifiers.happened,
-                    "realness": ev.modifiers.realness,
-                    "when": ev.modifiers.when,
-                    "viewpoint": ev.modifiers.viewpoint,
-                    "phase": ev.modifiers.phase,
-                    "repetition": ev.modifiers.repetition,
-                    "onPurpose": ev.modifiers.onPurpose,
-                    "howKnown": ev.modifiers.howKnown,
-                    "causation": ev.modifiers.causation,
-                }
-            
-            # Add speech act if present
-            if ev.speechAct:
-                ev_dict["speechAct"] = {
-                    "type": ev.speechAct.type,
-                    "quotationType": ev.speechAct.quotationType,
-                }
-            
-            # Add pragmatic if present
-            if ev.pragmatic:
-                ev_dict["pragmatic"] = {
-                    "register": ev.pragmatic.discourseRegister,
-                    "socialAxis": ev.pragmatic.socialAxis,
-                    "prominence": ev.pragmatic.prominence,
-                    "pacing": ev.pragmatic.pacing,
-                }
-            
-            # Add emotions if present
-            if ev.emotions:
-                ev_dict["emotions"] = [{
-                    "id": e.id,
-                    "participantId": e.participantId,
-                    "primary": e.primary,
-                    "secondary": e.secondary,
-                    "intensity": e.intensity,
-                    "source": e.source,
-                    "confidence": e.confidence,
-                    "notes": e.notes,
-                } for e in ev.emotions]
-            
-            # Add narrator stance if present
-            if ev.narratorStance:
-                ev_dict["narratorStance"] = {"stance": ev.narratorStance.stance}
-            
-            # Add audience response if present
-            if ev.audienceResponse:
-                ev_dict["audienceResponse"] = {"response": ev.audienceResponse.response}
-            
-            # Add LA retrieval if present
-            if ev.laRetrieval:
-                ev_dict["laRetrieval"] = {
-                    "emotionTags": ev.laRetrieval.emotionTags,
-                    "eventTags": ev.laRetrieval.eventTags,
-                    "registerTags": ev.laRetrieval.registerTags,
-                    "discourseTags": ev.laRetrieval.discourseTags,
-                    "socialTags": ev.laRetrieval.socialTags,
-                }
-            
-            # Add figurative if present
-            if ev.figurative:
-                ev_dict["figurative"] = {
-                    "isFigurative": ev.figurative.isFigurative,
-                    "figureType": ev.figurative.figureType,
-                    "sourceDomain": ev.figurative.sourceDomain,
-                    "targetDomain": ev.figurative.targetDomain,
-                    "literalMeaning": ev.figurative.literalMeaning,
-                    "intendedMeaning": ev.figurative.intendedMeaning,
-                    "transferability": ev.figurative.transferability,
-                    "translationNote": ev.figurative.translationNote,
-                }
-            
-            # Add key terms if present
-            if ev.keyTerms:
-                ev_dict["keyTerms"] = [{
-                    "id": kt.id,
-                    "termId": kt.termId,
-                    "sourceLemma": kt.sourceLemma,
-                    "semanticDomain": kt.semanticDomain,
-                    "consistency": kt.consistency,
-                } for kt in ev.keyTerms]
-            
-            result.append(ev_dict)
+        result = [await EventService._transform_event(ev, passage_id) for ev in events]
         
         return result
 
@@ -178,22 +79,18 @@ class EventService:
         if data.clauseId:
             event_data["clause"] = {"connect": {"id": data.clauseId}}
         
-        # Add roles - only roles with valid participants
+        # Add roles (including N/A participant: schema allows participantId null)
         if data.roles:
             role_creates = []
             for r in data.roles:
-                if not r.participantId:
-                    continue  # Skip roles without participant
-                # Find participant by participantId string
-                participant = await db.participant.find_first(
-                    where={"passageId": passage_id, "participantId": r.participantId}
-                )
-                if participant:
-                    role_data: Dict[str, Any] = {
-                        "role": r.role,
-                        "participant": {"connect": {"id": participant.id}}
-                    }
-                    role_creates.append(role_data)
+                role_data: Dict[str, Any] = {"role": r.role or ""}
+                if r.participantId:
+                    participant = await db.participant.find_first(
+                        where={"passageId": passage_id, "participantId": r.participantId}
+                    )
+                    if participant:
+                        role_data["participant"] = {"connect": {"id": participant.id}}
+                role_creates.append(role_data)
             if role_creates:
                 event_data["roles"] = {"create": role_creates}
         
@@ -234,7 +131,7 @@ class EventService:
                 "pacing": data.pragmatic.pacing,
             }}
         
-        # Add emotions
+        # Add emotions (use participantId scalar only; nested create rejects participant relation)
         if data.emotions:
             emotion_creates = []
             for emo in data.emotions:
@@ -251,7 +148,7 @@ class EventService:
                         where={"passageId": passage_id, "participantId": emo.participantId}
                     )
                     if participant:
-                        emo_data["participant"] = {"connect": {"id": participant.id}}
+                        emo_data["participantId"] = participant.id
                 emotion_creates.append(emo_data)
             if emotion_creates:
                 event_data["emotions"] = {"create": emotion_creates}
@@ -341,20 +238,17 @@ class EventService:
         
         passage_id = current.passageId
         
-        # Build role creates - only roles with valid participants
+        # Build role creates (including N/A participant: schema allows participantId null)
         role_creates = []
         for r in (data.roles or []):
-            if not r.participantId:
-                continue  # Skip roles without participant
-            participant = await db.participant.find_first(
-                where={"passageId": passage_id, "participantId": r.participantId}
-            )
-            if participant:
-                role_data: Dict[str, Any] = {
-                    "role": r.role,
-                    "participant": {"connect": {"id": participant.id}}
-                }
-                role_creates.append(role_data)
+            role_data: Dict[str, Any] = {"role": r.role or ""}
+            if r.participantId:
+                participant = await db.participant.find_first(
+                    where={"passageId": passage_id, "participantId": r.participantId}
+                )
+                if participant:
+                    role_data["participant"] = {"connect": {"id": participant.id}}
+            role_creates.append(role_data)
 
         # Build update data
         update_data: Dict[str, Any] = {
@@ -435,7 +329,7 @@ class EventService:
                 }
             }
         
-        # Update emotions (delete all and recreate)
+        # Update emotions (delete all and recreate; use participantId scalar only for nested create)
         if data.emotions is not None:
             emotion_creates = []
             for emo in data.emotions:
@@ -452,7 +346,7 @@ class EventService:
                         where={"passageId": passage_id, "participantId": emo.participantId}
                     )
                     if participant:
-                        emo_data["participant"] = {"connect": {"id": participant.id}}
+                        emo_data["participantId"] = participant.id
                 emotion_creates.append(emo_data)
             update_data["emotions"] = {
                 "deleteMany": {},
@@ -547,12 +441,12 @@ class EventService:
                 "create": term_creates,
             }
         
-        # Perform the update
+        # Perform the update (include participant on roles so _transform_event returns logical participantId for UI)
         event = await db.event.update(
             where={"id": id},
             data=update_data,
             include={
-                "roles": True,
+                "roles": {"include": {"participant": True}},
                 "modifiers": True,
                 "speechAct": True,
                 "pragmatic": True,
@@ -569,19 +463,29 @@ class EventService:
 
     @staticmethod
     async def _transform_event(event, passage_id: str) -> Dict:
-        """Transform Prisma event to response format"""
+        """Transform Prisma event to response format. Roles always use logical participantId (p1, p2) for UI."""
+        roles_out = []
+        for r in (event.roles or []):
+            if r.participant:
+                pid = r.participant.participantId
+            elif r.participantId:
+                part = await db.participant.find_unique(where={"id": r.participantId})
+                pid = part.participantId if part else r.participantId
+            else:
+                pid = None
+            roles_out.append({"role": r.role, "participantId": pid})
         ev_dict: Dict[str, Any] = {
             "id": event.id,
             "passageId": passage_id,
             "eventId": event.eventId,
-            # Map UUID to logical clause_id (1-based) for frontend linking
-            "clauseId": str(event.clause.clauseIndex + 1) if event.clause else None,
+            "clauseId": event.clauseId,
+            "unitClauseIds": event.unitClauseIds if hasattr(event, 'unitClauseIds') and event.unitClauseIds else None,
             "category": event.category,
             "eventCore": event.eventCore,
             "discourseFunction": event.discourseFunction,
             "chainPosition": event.chainPosition,
             "narrativeFunction": event.narrativeFunction,
-            "roles": [{"role": r.role, "participantId": r.participant.participantId if r.participant else r.participantId} for r in (event.roles or [])],
+            "roles": roles_out,
         }
         
         if event.modifiers:
@@ -705,12 +609,9 @@ class EventService:
             update_data["narrativeFunction"] = data.narrativeFunction
         # Note: clauseId is intentionally not updated in patch - it's a FK that requires full update
         
-        # Only update roles if provided - batch participant lookups
+        # Only update roles if provided (including N/A participant: schema allows participantId null)
         if data.roles is not None:
-            # Get all participant IDs needed (could be UUIDs or logical participantIds)
             participant_ids = [r.participantId for r in data.roles if r.participantId]
-            
-            # Try to find participants by both id (UUID) and participantId (logical)
             participants = await db.participant.find_many(
                 where={
                     "passageId": passage_id,
@@ -720,22 +621,16 @@ class EventService:
                     ]
                 }
             ) if participant_ids else []
-            
-            # Create lookup map - map both id and participantId to the DB id
             participant_map = {}
             for p in participants:
-                participant_map[p.id] = p.id  # UUID -> UUID
-                participant_map[p.participantId] = p.id  # logical ID -> UUID
-            
-            # Build role creates
+                participant_map[p.id] = p.id
+                participant_map[p.participantId] = p.id
             role_creates = []
             for r in data.roles:
+                role_data: Dict[str, Any] = {"role": r.role or ""}
                 if r.participantId and r.participantId in participant_map:
-                    role_creates.append({
-                        "role": r.role,
-                        "participant": {"connect": {"id": participant_map[r.participantId]}}
-                    })
-            
+                    role_data["participant"] = {"connect": {"id": participant_map[r.participantId]}}
+                role_creates.append(role_data)
             update_data["roles"] = {
                 "deleteMany": {},
                 "create": role_creates,
@@ -915,8 +810,7 @@ class EventService:
                     "notes": e.notes,
                 }
                 if e.participantId and e.participantId in participant_map:
-                    emotion_data["participant"] = {"connect": {"id": participant_map[e.participantId]}}
-                    emotion_data["participantId"] = e.participantId
+                    emotion_data["participantId"] = participant_map[e.participantId]
                 emotion_creates.append(emotion_data)
             
             update_data["emotions"] = {
@@ -934,7 +828,7 @@ class EventService:
             data=update_data,
             include={
                 "clause": True,
-                "roles": True,
+                "roles": {"include": {"participant": True}},
                 "modifiers": True,
                 "speechAct": True,
                 "pragmatic": True,
