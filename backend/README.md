@@ -1,46 +1,35 @@
 # Backend
 
-Python backend with FastAPI.
+FastAPI + Prisma (PostgreSQL). Dependencies managed with **uv** (`pyproject.toml`, `uv.lock`).
 
 ## Setup
 
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Create .env file
+uv sync
 cp .env.example .env
-
-# Generate Prisma client
-prisma generate
-
-# Run migrations
-prisma migrate dev
-
-# Start server
-uvicorn app.main:app --reload
+uv run prisma generate
+uv run prisma migrate dev
+uv run uvicorn app.main:app --reload
 ```
 
-## API Documentation
+## API docs
 
-Once running, visit: http://localhost:8000/docs
+http://localhost:8000/docs
 
-## Project Structure
+## Structure
 
 ```
-backend/
-├── app/
-│   ├── api/           # API route handlers
-│   ├── core/          # Core configuration
-│   ├── models/        # Pydantic models
-│   ├── services/      # Business logic (functional)
-│   └── main.py        # FastAPI application
-├── prisma/
-│   └── schema.prisma  # Database schema
-├── tests/             # Tests
-└── requirements.txt
+app/
+├── api/        # HTTP route handlers (thin; call services only)
+├── ai/         # LLM client, prompts, schemas, context builders
+├── core/       # config, database, auth
+├── models/     # Pydantic schemas
+├── services/   # business logic and data access
+└── main.py
+prisma/
+├── schema.prisma
+└── migrations/
+scripts/        # seed, import, etc.
+pyproject.toml
+uv.lock
 ```
