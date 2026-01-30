@@ -37,12 +37,10 @@ function ContentWrapper({ children, className = '' }: { children: React.ReactNod
     )
 }
 
-// Auth wrapper component
 function AuthenticatedApp() {
     const { isAuthenticated, isApproved, isLoading } = useAuth()
     const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
 
-    // Loading state
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-branco">
@@ -54,7 +52,6 @@ function AuthenticatedApp() {
         )
     }
 
-    // Not authenticated - show login or signup
     if (!isAuthenticated) {
         if (authMode === 'signup') {
             return <SignupPage onSwitchToLogin={() => setAuthMode('login')} />
@@ -62,12 +59,10 @@ function AuthenticatedApp() {
         return <LoginPage onSwitchToSignup={() => setAuthMode('signup')} />
     }
 
-    // Authenticated but not approved
     if (!isApproved) {
         return <PendingApprovalPage />
     }
 
-    // Authenticated and approved - show main app
     return <MainApp />
 }
 
@@ -86,7 +81,6 @@ function MainApp() {
         return 1
     })
 
-    // Handle browser back/forward
     useEffect(() => {
         const handlePopState = () => {
             if (typeof window !== 'undefined') {
@@ -107,13 +101,11 @@ function MainApp() {
         return () => window.removeEventListener('popstate', handlePopState)
     }, [])
 
-    // Sync stage to URL
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
         if (params.get('stage') !== currentStage.toString()) {
             params.set('stage', currentStage.toString())
             const newUrl = `${window.location.pathname}?${params.toString()}`
-            // Use pushState to create history entries for navigation
             window.history.pushState({ ...window.history.state, stage: currentStage }, '', newUrl)
         }
     }, [currentStage])
@@ -121,7 +113,6 @@ function MainApp() {
     const [isCollapsed, setIsCollapsed] = useState(true)
     const { isAdmin } = useAuth()
 
-    // Get validation state from store
     const {
         participants,
         relations,
@@ -150,23 +141,17 @@ function MainApp() {
 
     const CurrentStageComponent = stages.find(s => s.id === currentStage)?.component || Stage1Syntax
 
-    // Check if current stage is fully validated
     const isStageValidated = (stage: number): boolean => {
         switch (stage) {
             case 1:
-                // Stage 1 is validated if we have passage data
                 return !!passageData?.id
             case 2:
-                // Stage 2: all participants validated
                 return participants.length === 0 || participants.every(p => validated.participants.has(p.id))
             case 3:
-                // Stage 3: all relations validated
                 return relations.length === 0 || relations.every(r => validated.relations.has(r.id))
             case 4:
-                // Stage 4: all events validated
                 return events.length === 0 || events.every(e => validated.events.has(e.id))
             case 5:
-                // Stage 5 doesn't block (final stage)
                 return true
             default:
                 return true
@@ -201,7 +186,6 @@ function MainApp() {
             discardSession()
             setReadOnly(readOnly)
             const passage = await passagesAPI.get(id)
-            // All data below is for this passage id only (chosen pericope); no session/lock mixing
             if (String(passage?.id ?? '') !== id) {
                 toast.error('Passage data mismatch')
                 return
@@ -277,7 +261,6 @@ function MainApp() {
 
     const goToNext = () => {
         if (currentStage < 5) {
-            // In view-only mode skip validation warning; otherwise show but don't block
             if (!readOnly && !isStageValidated(currentStage)) {
                 toast.warning('Incomplete Validation', {
                     description: getValidationMessage(currentStage)
@@ -287,15 +270,12 @@ function MainApp() {
         }
     }
 
-    // Handle click navigation from ProgressBar
     const handleStageClick = (stage: number) => {
-        // Stage 1 must have passage data to navigate away
         if (currentStage === 1 && !passageData?.id && stage > 1) {
             toast.error('Please load a passage first')
             return
         }
         
-        // In view-only mode skip validation warning; otherwise show if leaving incomplete stage
         if (!readOnly && !isStageValidated(currentStage) && stage !== currentStage) {
             toast.warning('Incomplete Validation', {
                 description: getValidationMessage(currentStage)
@@ -307,7 +287,6 @@ function MainApp() {
 
     const canProceed = isStageValidated(currentStage)
 
-    /** Go to editor home: clear current passage and show Stage 1 pericope selector (start new pericope). */
     const goToEditorHome = () => {
         clearPassage()
         setReadOnly(false)
@@ -315,12 +294,10 @@ function MainApp() {
         setCurrentStage(1)
     }
 
-    // Redirect non-admins away from dashboard
     if (currentView === 'admin-dashboard' && !isAdmin) {
         setCurrentView('analysis')
     }
 
-    // Views
     if (currentView === 'saved-maps') {
         return (
             <SidebarProvider value={{ isCollapsed, setIsCollapsed }}>
@@ -362,7 +339,6 @@ function MainApp() {
                 <ContentWrapper>
                     <ProgressBar currentStage={currentStage} totalStages={5} onStageClick={handleStageClick} />
 
-                    {/* My Maps button */}
                     <div className="max-w-6xl mx-auto px-6 pt-4">
                         <button
                             onClick={() => setCurrentView('saved-maps')}
@@ -373,7 +349,6 @@ function MainApp() {
                         </button>
                     </div>
 
-                    {/* Main content */}
                     <main className="max-w-6xl mx-auto px-6 py-4">
                         <div className="animate-in">
                             <CurrentStageComponent />
@@ -381,11 +356,9 @@ function MainApp() {
                     </main>
                 </ContentWrapper>
 
-                {/* Floating navigation buttons */}
                 <div
                     className={`fixed bottom-6 right-6 flex justify-between pointer-events-none z-30 transition-all duration-300 ${isCollapsed ? 'left-[104px] lg:left-[104px]' : 'left-6 lg:left-[280px]'}`}
                 >
-                    {/* Previous button */}
                     <button
                         onClick={goToPrevious}
                         disabled={currentStage === 1}
@@ -401,7 +374,6 @@ function MainApp() {
                         Back
                     </button>
 
-                    {/* Next button */}
                     <button
                         onClick={goToNext}
                         disabled={currentStage === 5}
