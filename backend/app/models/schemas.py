@@ -1,14 +1,6 @@
-"""
-Pydantic models/schemas for API requests and responses
-Immutable data structures following functional approach
-"""
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-
-# ============================================================
-# PASSAGE MODELS
-# ============================================================
 
 class ClauseBase(BaseModel):
     """Base clause model"""
@@ -37,10 +29,6 @@ class ClauseResponse(ClauseBase):
     class Config:
         from_attributes = True
 
-
-# ============================================================
-# PARTICIPANT MODELS
-# ============================================================
 
 class PropertyDimension(BaseModel):
     """Property dimension"""
@@ -74,10 +62,6 @@ class ParticipantResponse(ParticipantBase):
         from_attributes = True
 
 
-# ============================================================
-# RELATION MODELS
-# ============================================================
-
 class RelationBase(BaseModel):
     """Base relation model"""
     category: Optional[str] = None
@@ -99,10 +83,6 @@ class RelationResponse(RelationBase):
     class Config:
         from_attributes = True
 
-
-# ============================================================
-# EVENT MODELS
-# ============================================================
 
 class EventRoleBase(BaseModel):
     """Event role"""
@@ -216,7 +196,7 @@ class EventResponse(EventBase):
     """Event response with all sub-models"""
     id: str
     passageId: str
-    unitClauseIds: Optional[List[int]] = None  # BHSA clause_ids for display unit; required for clause text in UI
+    unitClauseIds: Optional[List[int]] = None
     modifiers: Optional[EventModifierBase] = None
     speechAct: Optional[SpeechActBase] = None
     pragmatic: Optional[EventPragmaticBase] = None
@@ -252,10 +232,6 @@ class EventPatch(BaseModel):
     keyTerms: Optional[List[KeyTermBase]] = None
 
 
-# ============================================================
-# DISCOURSE MODELS
-# ============================================================
-
 class DiscourseRelationBase(BaseModel):
     """Base discourse relation"""
     relationType: Optional[str] = None
@@ -277,10 +253,6 @@ class DiscourseRelationResponse(DiscourseRelationBase):
         from_attributes = True
 
 
-# ============================================================
-# FIELD OPTION MODELS
-# ============================================================
-
 class FieldOptionBase(BaseModel):
     """Base field option model"""
     category: str
@@ -291,7 +263,7 @@ class FieldOptionBase(BaseModel):
 class FieldOptionCreate(BaseModel):
     """Create field option - only value and optional label needed"""
     value: str
-    label: Optional[str] = None  # Defaults to value if not provided
+    label: Optional[str] = None
 
 
 class FieldOptionResponse(FieldOptionBase):
