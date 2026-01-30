@@ -1,10 +1,5 @@
-"""
-Database configuration and connection management
-Functional approach with Prisma
-"""
 from prisma import Prisma
 
-# Global Prisma client instance
 db = Prisma()
 
 
