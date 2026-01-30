@@ -1,9 +1,7 @@
-/**
- * LoginPage - User login screen matching ShemaTranslation design
- */
 import { useState } from 'react'
 import { User, Lock, EyeOff, Eye } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { errorStateStyles } from '@/styles'
 
 interface LoginPageProps {
     onSwitchToSignup: () => void
@@ -45,7 +43,7 @@ export default function LoginPage({ onSwitchToSignup }: LoginPageProps) {
             {/* Login Form */}
             <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                    <div className={errorStateStyles.banner}>
                         {error}
                     </div>
                 )}

@@ -1,22 +1,40 @@
-# Production Dockerfile
+# Production Dockerfile using uv
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Install system dependencies needed for building
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies using uv (creates .venv in /app)
+RUN uv sync --frozen --no-dev
+
+# Production stage
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install runtime system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
 COPY . .
+
+# Add venv to PATH
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Generate Prisma client
 RUN prisma generate
@@ -33,5 +51,5 @@ RUN chmod +x entrypoint.sh
 # Use entrypoint script to handle secrets and db setup
 ENTRYPOINT ["./entrypoint.sh"]
 
-# Use gunicorn for production - must use exec form with ENTRYPOINT
+# Use gunicorn for production
 CMD ["gunicorn", "app.main:app", "--workers", "1", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8080", "--timeout", "120"]

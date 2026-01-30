@@ -3,6 +3,7 @@ import { userProgressAPI, UserProgress as UserProgressType } from '../../service
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
+import { errorStateStyles } from '@/styles'
 import {
     Users,
     CheckCircle2,
@@ -37,7 +38,6 @@ export default function UserProgressDashboard() {
 
     useEffect(() => {
         fetchProgress()
-        // Auto-refresh every 30 seconds
         const interval = setInterval(fetchProgress, 30000)
         return () => clearInterval(interval)
     }, [])
@@ -82,7 +82,7 @@ export default function UserProgressDashboard() {
         return (
             <Card>
                 <CardContent className="py-8 text-center">
-                    <div className="bg-red-50 text-red-600 p-4 rounded-lg inline-block">
+                    <div className={`${errorStateStyles.banner} inline-block`}>
                         {error}
                     </div>
                     <div className="mt-4">
@@ -93,7 +93,6 @@ export default function UserProgressDashboard() {
         )
     }
 
-    // Calculate totals
     const totalCompleted = progress.reduce((acc, u) => acc + u.completedPassages, 0)
     const totalInProgress = progress.reduce((acc, u) => acc + u.inProgressPassages, 0)
     const totalActiveLocks = progress.reduce((acc, u) => acc + u.currentLocks.length, 0)
@@ -119,7 +118,6 @@ export default function UserProgressDashboard() {
                 </div>
             </CardHeader>
             <CardContent className="space-y-6">
-                {/* Summary Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <div className="text-2xl font-bold text-preto">{activeUsers}</div>
@@ -139,7 +137,6 @@ export default function UserProgressDashboard() {
                     </div>
                 </div>
 
-                {/* User List */}
                 <div className="space-y-3">
                     {progress.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
@@ -182,7 +179,6 @@ export default function UserProgressDashboard() {
                                         </div>
 
                                         <div className="flex items-center gap-4">
-                                            {/* Stats */}
                                             <div className="flex items-center gap-4 text-sm">
                                                 <div className="flex items-center gap-1 text-verde-claro" title="Completed">
                                                     <CheckCircle2 className="w-4 h-4" />
@@ -198,7 +194,6 @@ export default function UserProgressDashboard() {
                                                 </div>
                                             </div>
 
-                                            {/* Expand toggle */}
                                             {isExpanded ? (
                                                 <ChevronUp className="w-5 h-5 text-gray-400" />
                                             ) : (
@@ -207,7 +202,6 @@ export default function UserProgressDashboard() {
                                         </div>
                                     </button>
 
-                                    {/* Expanded Details */}
                                     {isExpanded && (
                                         <div className="px-4 pb-4 pt-2 border-t border-gray-100">
                                             {user.currentLocks.length > 0 ? (

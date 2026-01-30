@@ -4,6 +4,7 @@ import { usePassageStore } from '../../stores/passageStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Sparkles, CheckCircle2, Loader2, Brain, Users, GitBranch, Zap, MessageSquare } from 'lucide-react'
+import { errorStateStyles, stageHeaderStyles } from '@/styles'
 
 interface AIProcessingModalProps {
     isOpen: boolean
@@ -48,8 +49,6 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
         setCurrentStep(0)
 
         try {
-            // Use full SSE stream for all phases
-            // Note: EventSource needs full URL since it doesn't use axios
             const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
             
             await new Promise<void>((resolve, reject) => {
@@ -70,14 +69,12 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                             return
                         }
                         
-                        // Phase mapping: phase 0=init, 1=participants, 2=relations, 3=events, 4=discourse, 5=complete
                         const phaseToStep: { [key: number]: number } = { 0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 4 }
                         
                         if (data.phase !== undefined) {
                             setCurrentStep(phaseToStep[data.phase] ?? data.phase)
                         }
                         
-                        // Update progress for specific steps
                         if (data.step === 'participant') {
                             setStepProgress(prev => ({
                                 ...prev,
@@ -106,7 +103,6 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                             }))
                         }
                         
-                        // Show totals when AI completes each phase
                         if (data.step === 'ai_phase1_complete') {
                             setStepProgress(prev => ({
                                 ...prev,
@@ -139,17 +135,14 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                 }
             })
             
-            // Fetch the saved data to update the store
             if (passageData?.id) {
                 await fetchEvents(passageData.id)
                 await fetchDiscourse(passageData.id)
                 
-                // Also fetch participants and relations
                 const { bhsaAPI } = await import('../../services/api')
                 const participants = await bhsaAPI.getParticipants(passageData.id)
                 const relations = await bhsaAPI.getRelations(passageData.id)
                 
-                // Create snapshot for metrics
                 try {
                     const snapshotResponse = await metricsAPI.createSnapshot(passageData.id, { participants, relations })
                     setAiSnapshot({ participants, relations }, snapshotResponse.snapshotId)
@@ -206,7 +199,7 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                             <CheckCircle2 className="w-8 h-8 text-verde-claro" />
                         </div>
                         <h4 className="text-lg font-semibold text-preto">Analysis Complete!</h4>
-                        <p className="text-verde mt-1">Populating all stages...</p>
+                        <p className={stageHeaderStyles.description}>Populating all stages...</p>
                     </div>
                 ) : status === 'processing' ? (
                     <div className="py-6">
@@ -268,7 +261,7 @@ export default function AIProcessingModal({ isOpen, onClose }: AIProcessingModal
                 ) : (
                     <>
                         {error && (
-                            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                            <div className={errorStateStyles.banner}>
                                 {error}
                             </div>
                         )}

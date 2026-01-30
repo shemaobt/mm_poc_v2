@@ -1,9 +1,7 @@
-/**
- * SignupPage - User registration screen
- */
 import { useState } from 'react'
 import { User, Mail, Lock, EyeOff, Eye, CheckCircle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { errorStateStyles, stageHeaderStyles } from '@/styles'
 
 interface SignupPageProps {
     onSwitchToLogin: () => void
@@ -41,7 +39,7 @@ export default function SignupPage({ onSwitchToLogin }: SignupPageProps) {
                     <div className="w-20 h-20 bg-verde-claro/20 rounded-full flex items-center justify-center mx-auto mb-6">
                         <CheckCircle className="w-10 h-10 text-verde-claro" />
                     </div>
-                    <h1 className="text-2xl font-bold text-preto mb-2">Account Created!</h1>
+                    <h1 className={`${stageHeaderStyles.title} mb-2`}>Account Created!</h1>
                     <p className="text-verde mb-6">
                         Your account is pending admin approval. You'll be able to sign in once approved.
                     </p>
@@ -70,7 +68,7 @@ export default function SignupPage({ onSwitchToLogin }: SignupPageProps) {
             {/* Signup Form */}
             <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                    <div className={errorStateStyles.banner}>
                         {error}
                     </div>
                 )}

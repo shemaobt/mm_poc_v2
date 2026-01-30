@@ -1,15 +1,9 @@
-/**
- * useOptions Hook
- * Fetches and caches dynamic dropdown options from the backend.
- * Provides createOption function for adding new options.
- */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { optionsAPI, FieldOption } from '../services/api'
 
-// In-memory cache for options (shared across all instances)
 const optionsCache: Map<string, FieldOption[]> = new Map()
 const cacheTimestamps: Map<string, number> = new Map()
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000
 
 interface UseOptionsResult {
     options: FieldOption[]
@@ -26,19 +20,17 @@ export function useOptions(category: string): UseOptionsResult {
     const fetchingRef = useRef(false)
 
     const fetchOptions = useCallback(async (forceRefresh = false) => {
-        // Check cache first (unless force refresh)
         if (!forceRefresh) {
             const cachedOptions = optionsCache.get(category)
             const cacheTime = cacheTimestamps.get(category)
             
-            if (cachedOptions && cacheTime && Date.now() - cacheTime < CACHE_TTL) {
+            if (cachedOptions && cacheTime && Date.now() - cacheTime < CACHE_TTL_MS) {
                 setOptions(cachedOptions)
                 setLoading(false)
                 return
             }
         }
 
-        // Prevent concurrent fetches for the same category
         if (fetchingRef.current) return
         fetchingRef.current = true
 
@@ -47,7 +39,6 @@ export function useOptions(category: string): UseOptionsResult {
             setError(null)
             const data = await optionsAPI.list(category)
             
-            // Update cache
             optionsCache.set(category, data)
             cacheTimestamps.set(category, Date.now())
             
@@ -56,7 +47,6 @@ export function useOptions(category: string): UseOptionsResult {
             console.error(`Failed to fetch options for ${category}:`, err)
             setError(err instanceof Error ? err.message : 'Failed to fetch options')
             
-            // Fall back to cached options if available
             const cachedOptions = optionsCache.get(category)
             if (cachedOptions) {
                 setOptions(cachedOptions)
@@ -75,7 +65,6 @@ export function useOptions(category: string): UseOptionsResult {
         try {
             const newOption = await optionsAPI.create(category, value, label)
             
-            // Update local state and cache
             const updatedOptions = [...options, newOption]
             setOptions(updatedOptions)
             optionsCache.set(category, updatedOptions)
@@ -83,13 +72,10 @@ export function useOptions(category: string): UseOptionsResult {
             
             return newOption
         } catch (err: any) {
-            // Handle duplicate error gracefully
             if (err?.response?.status === 409) {
-                // Option already exists, try to find it in current options
                 const existing = options.find(o => o.value === value)
                 if (existing) return existing
                 
-                // Refresh to get the existing option
                 await fetchOptions(true)
                 const refreshed = optionsCache.get(category)
                 return refreshed?.find(o => o.value === value) || null

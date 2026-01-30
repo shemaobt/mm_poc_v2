@@ -1,425 +1,153 @@
-"""
-Pericopes API - List and search available pericopes
-Includes locking functionality to prevent concurrent editing
-"""
-
 from fastapi import APIRouter, Query, HTTPException, Depends
-from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+
 from prisma import Prisma
 
+from app.core.auth_middleware import get_current_approved_user, get_admin_user
 from app.core.database import get_db
-from app.core.auth_middleware import get_current_approved_user
+from app.services import pericope_service
+from app.services.pericope_service import (
+    LockConflictError,
+    LockNotFoundError,
+    NotAuthorizedError
+)
+from app.models.service_types import (
+    ContributorInfo,
+    PericopeInfo,
+    LockInfo,
+    LockResponse,
+    UnlockResponse,
+    HeartbeatResponse,
+    DeleteResponse,
+    ResetResponse
+)
 
 router = APIRouter(prefix="/api/pericopes", tags=["pericopes"])
 
 
-class PericopeResponse(BaseModel):
-    id: str
-    reference: str
-    book: str
-    chapterStart: int
-    verseStart: int
-    chapterEnd: Optional[int]
-    verseEnd: Optional[int]
+@router.get("/contributors", response_model=List[ContributorInfo])
+async def list_contributors(
+    db: Prisma = Depends(get_db),
+    current_user: dict = Depends(get_current_approved_user)
+):
+    """List users who have at least one passage."""
+    return await pericope_service.list_contributors(db)
 
 
-class LockInfo(BaseModel):
-    pericopeRef: str
-    userId: str
-    userName: str
-    startedAt: str
-    lastActivity: str
-
-
-class PericopeWithLockResponse(BaseModel):
-    id: str
-    reference: str
-    book: str
-    chapterStart: int
-    verseStart: int
-    chapterEnd: Optional[int]
-    verseEnd: Optional[int]
-    lock: Optional[LockInfo] = None
-
-
-class ContributorItem(BaseModel):
-    id: str
-    username: str
-
-
-@router.get("/contributors", response_model=List[ContributorItem])
-async def list_contributors(current_user: dict = Depends(get_current_approved_user)):
-    """
-    List users who have at least one passage (for filtering pericopes by "done by user").
-    Any authenticated user can call this to choose whose work to view.
-    """
-    db = get_db()
-    passages = await db.passage.find_many(
-        where={"userId": {"not": None}},
-        distinct=["userId"],
-    )
-    user_ids = [p.userId for p in passages if p.userId]
-    if not user_ids:
-        return []
-    users = await db.user.find_many(
-        where={"id": {"in": user_ids}},
-        select={"id": True, "username": True},
-        order={"username": "asc"},
-    )
-    return [ContributorItem(id=u.id, username=u.username) for u in users]
-
-
-@router.get("", response_model=List[PericopeWithLockResponse])
+@router.get("", response_model=List[PericopeInfo])
 async def list_pericopes(
+    db: Prisma = Depends(get_db),
     book: Optional[str] = Query(None, description="Filter by book name"),
     search: Optional[str] = Query(None, description="Search by reference"),
     created_by_user_id: Optional[str] = Query(None, description="Only pericopes that have a passage created by this user"),
     limit: int = Query(100, le=500, description="Max results to return"),
 ):
-    """
-    List available pericopes with optional filtering.
-    Includes lock information for each pericope.
-    When created_by_user_id is set, only returns pericopes that have at least one passage by that user (view-only filter).
-    """
-    db = get_db()
-    
-    where = {}
-    
-    if created_by_user_id:
-        refs_result = await db.passage.find_many(
-            where={"userId": created_by_user_id},
-            distinct=["reference"],
-        )
-        ref_list = [p.reference for p in refs_result]
-        if not ref_list:
-            return []
-        where["reference"] = {"in": ref_list}
-    
-    if book:
-        where["book"] = book
-    
-    if search:
-        if "reference" in where:
-            # Combine: reference in ref_list AND contains search
-            ref_constraint = where["reference"]
-            where = {"AND": [where, {"reference": {"contains": search, "mode": "insensitive"}}]}
-        else:
-            where["reference"] = {"contains": search, "mode": "insensitive"}
-    
-    pericopes = await db.pericope.find_many(
-        where=where,
-        order=[
-            {"book": "asc"},
-            {"chapterStart": "asc"},
-            {"verseStart": "asc"},
-        ],
-        take=limit,
+    """List available pericopes with optional filtering and lock information."""
+    return await pericope_service.list_pericopes(
+        db,
+        book=book,
+        search=search,
+        created_by_user_id=created_by_user_id,
+        limit=limit
     )
-    
-    # Get all locks for the references we found
-    refs = [p.reference for p in pericopes]
-    locks = await db.pericopelock.find_many(
-        where={"pericopeRef": {"in": refs}}
-    )
-    locks_map = {lock.pericopeRef: lock for lock in locks}
-    
-    result = []
-    for p in pericopes:
-        lock_data = None
-        if p.reference in locks_map:
-            lock = locks_map[p.reference]
-            lock_data = LockInfo(
-                pericopeRef=lock.pericopeRef,
-                userId=lock.userId,
-                userName=lock.userName,
-                startedAt=lock.startedAt.isoformat(),
-                lastActivity=lock.lastActivity.isoformat(),
-            )
-        
-        result.append(PericopeWithLockResponse(
-            id=p.id,
-            reference=p.reference,
-            book=p.book,
-            chapterStart=p.chapterStart,
-            verseStart=p.verseStart,
-            chapterEnd=p.chapterEnd,
-            verseEnd=p.verseEnd,
-            lock=lock_data,
-        ))
-    
-    return result
 
 
 @router.get("/books", response_model=List[str])
-async def list_books():
-    """
-    List all unique book names that have pericopes.
-    """
-    db = get_db()
-    
-    # Get distinct books
-    pericopes = await db.pericope.find_many(
-        distinct=["book"],
-        order={"book": "asc"},
-    )
-    
-    # Order by canonical order
-    OT_ORDER = [
-        "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
-        "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel",
-        "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles",
-        "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
-        "Ecclesiastes", "Song of Solomon", "Song of Songs",
-        "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel",
-        "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
-        "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
-    ]
-    
-    books = [p.book for p in pericopes]
-    # Sort by canonical order
-    ordered_books = [b for b in OT_ORDER if b in books]
-    # Add any books not in OT_ORDER at the end
-    remaining = [b for b in books if b not in OT_ORDER]
-    
-    return ordered_books + remaining
+async def list_books(db: Prisma = Depends(get_db)):
+    """List all unique book names in canonical order."""
+    return await pericope_service.list_books(db)
 
 
-# ============================================================
-# PERICOPE LOCKING ENDPOINTS
-# ============================================================
-
-@router.post("/lock/{reference:path}")
+@router.post("/lock/{reference:path}", response_model=LockResponse)
 async def lock_pericope(
     reference: str,
+    db: Prisma = Depends(get_db),
     current_user: dict = Depends(get_current_approved_user)
 ):
-    """
-    Lock a pericope for the current user.
-    If already locked by the same user, updates lastActivity.
-    If locked by another user, returns 409 Conflict.
-    """
-    db = get_db()
-    
-    # Check if already locked
-    existing_lock = await db.pericopelock.find_unique(
-        where={"pericopeRef": reference}
-    )
-    
-    if existing_lock:
-        # If locked by the same user, just update activity
-        if existing_lock.userId == current_user["sub"]:
-            updated = await db.pericopelock.update(
-                where={"id": existing_lock.id},
-                data={"lastActivity": datetime.utcnow()}
-            )
-            return {
-                "status": "extended",
-                "message": "Lock extended",
-                "lock": {
-                    "pericopeRef": updated.pericopeRef,
-                    "userId": updated.userId,
-                    "userName": updated.userName,
-                    "startedAt": updated.startedAt.isoformat(),
-                    "lastActivity": updated.lastActivity.isoformat(),
-                }
+    """Lock a pericope for the current user."""
+    try:
+        return await pericope_service.lock_pericope(
+            db,
+            reference=reference,
+            user_id=current_user["sub"],
+            username=current_user["username"]
+        )
+    except LockConflictError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "lockedBy": e.locked_by,
+                "lockedSince": e.locked_since,
             }
-        else:
-            # Locked by someone else
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": f"Pericope is being analyzed by {existing_lock.userName}",
-                    "lockedBy": existing_lock.userName,
-                    "lockedSince": existing_lock.startedAt.isoformat(),
-                }
-            )
-    
-    # Create new lock
-    lock = await db.pericopelock.create(
-        data={
-            "pericopeRef": reference,
-            "userId": current_user["sub"],
-            "userName": current_user["username"],
-            "startedAt": datetime.utcnow(),
-            "lastActivity": datetime.utcnow(),
-        }
-    )
-    
-    return {
-        "status": "locked",
-        "message": "Pericope locked successfully",
-        "lock": {
-            "pericopeRef": lock.pericopeRef,
-            "userId": lock.userId,
-            "userName": lock.userName,
-            "startedAt": lock.startedAt.isoformat(),
-            "lastActivity": lock.lastActivity.isoformat(),
-        }
-    }
+        )
 
 
-@router.delete("/lock/{reference:path}")
+@router.delete("/lock/{reference:path}", response_model=UnlockResponse)
 async def unlock_pericope(
     reference: str,
+    db: Prisma = Depends(get_db),
     current_user: dict = Depends(get_current_approved_user)
 ):
-    """
-    Release a pericope lock.
-    Only the owner or an admin can release it.
-    """
-    db = get_db()
-    
-    existing_lock = await db.pericopelock.find_unique(
-        where={"pericopeRef": reference}
-    )
-    
-    if not existing_lock:
-        return {"status": "not_locked", "message": "Pericope was not locked"}
-    
-    # Check authorization: owner or admin
-    is_owner = existing_lock.userId == current_user["sub"]
-    is_admin = current_user.get("role") == "admin"
-    
-    if not is_owner and not is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only the lock owner or an admin can release this lock"
+    """Release a pericope lock."""
+    try:
+        return await pericope_service.unlock_pericope(
+            db,
+            reference=reference,
+            user_id=current_user["sub"],
+            user_role=current_user.get("role")
         )
-    
-    await db.pericopelock.delete(where={"id": existing_lock.id})
-    
-    return {"status": "unlocked", "message": "Pericope unlocked successfully"}
+    except NotAuthorizedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.get("/locks", response_model=List[LockInfo])
-async def list_all_locks():
-    """
-    List all active pericope locks.
-    """
-    db = get_db()
-    
-    locks = await db.pericopelock.find_many(
-        order={"startedAt": "desc"}
-    )
-    
-    return [
-        LockInfo(
-            pericopeRef=lock.pericopeRef,
-            userId=lock.userId,
-            userName=lock.userName,
-            startedAt=lock.startedAt.isoformat(),
-            lastActivity=lock.lastActivity.isoformat(),
-        )
-        for lock in locks
-    ]
+async def list_all_locks(db: Prisma = Depends(get_db)):
+    """List all active pericope locks."""
+    return await pericope_service.list_all_locks(db)
 
 
-@router.put("/lock/{reference:path}/heartbeat")
+@router.put("/lock/{reference:path}/heartbeat", response_model=HeartbeatResponse)
 async def heartbeat_lock(
     reference: str,
+    db: Prisma = Depends(get_db),
     current_user: dict = Depends(get_current_approved_user)
 ):
-    """
-    Update the lastActivity timestamp for an active lock.
-    Used to keep the lock alive during long analysis sessions.
-    """
-    db = get_db()
-    
-    existing_lock = await db.pericopelock.find_unique(
-        where={"pericopeRef": reference}
-    )
-    
-    if not existing_lock:
-        raise HTTPException(status_code=404, detail="Lock not found")
-    
-    if existing_lock.userId != current_user["sub"]:
-        raise HTTPException(status_code=403, detail="Not your lock")
-    
-    updated = await db.pericopelock.update(
-        where={"id": existing_lock.id},
-        data={"lastActivity": datetime.utcnow()}
-    )
-    
-    return {"status": "ok", "lastActivity": updated.lastActivity.isoformat()}
+    """Update the lastActivity timestamp for an active lock."""
+    try:
+        return await pericope_service.heartbeat_lock(
+            db,
+            reference=reference,
+            user_id=current_user["sub"]
+        )
+    except LockNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except NotAuthorizedError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
-# ============================================================
-# ADMIN-ONLY BULK OPERATIONS
-# ============================================================
-
-from app.core.auth_middleware import get_admin_user
-
-@router.delete("/locks/all")
-async def reset_all_locks(admin: dict = Depends(get_admin_user)):
-    """
-    Admin only: Delete all pericope locks (reset all in-progress work).
-    """
-    db = get_db()
-    
-    result = await db.pericopelock.delete_many()
-    
-    return {
-        "status": "success",
-        "message": f"All locks have been reset",
-        "deleted_count": result
-    }
+@router.delete("/locks/all", response_model=DeleteResponse)
+async def reset_all_locks(
+    db: Prisma = Depends(get_db),
+    admin: dict = Depends(get_admin_user)
+):
+    """Admin only: Delete all pericope locks."""
+    return await pericope_service.reset_all_locks(db)
 
 
-@router.delete("/passages/all")
-async def delete_all_passages(admin: dict = Depends(get_admin_user)):
-    """
-    Admin only: Delete all passages and their related data.
-    This is a destructive operation - use with caution.
-    """
-    db = get_db()
-    
-    # First, delete all locks
-    await db.pericopelock.delete_many()
-    
-    # Count passages before deletion
-    passage_count = await db.passage.count()
-    
-    # Delete all passages (cascade will handle related entities)
-    await db.passage.delete_many()
-    
-    return {
-        "status": "success",
-        "message": f"All passages and related data have been deleted",
-        "deleted_count": passage_count
-    }
+@router.delete("/passages/all", response_model=DeleteResponse)
+async def delete_all_passages(
+    db: Prisma = Depends(get_db),
+    admin: dict = Depends(get_admin_user)
+):
+    """Admin only: Delete all passages and their related data."""
+    return await pericope_service.delete_all_passages(db)
 
 
-@router.delete("/reset/all")
-async def reset_everything(admin: dict = Depends(get_admin_user)):
-    """
-    Admin only: Complete system reset - deletes ALL data.
-    This includes: passages, locks, metrics, snapshots, edit logs.
-    WARNING: This is a destructive operation that cannot be undone.
-    """
-    db = get_db()
-    
-    deleted_counts = {}
-    
-    # Delete all pericope locks
-    deleted_counts["locks"] = await db.pericopelock.delete_many()
-    
-    # Delete all edit logs (before snapshots due to FK)
-    deleted_counts["edit_logs"] = await db.editlog.delete_many()
-    
-    # Delete all AI snapshots
-    deleted_counts["snapshots"] = await db.aisnapshot.delete_many()
-    
-    # Delete all metrics summaries
-    deleted_counts["metrics"] = await db.metricssummary.delete_many()
-    
-    # Delete all passages (cascade handles related entities like clauses, participants, etc.)
-    deleted_counts["passages"] = await db.passage.delete_many()
-    
-    return {
-        "status": "success",
-        "message": "Complete system reset performed. All data has been deleted.",
-        "deleted_counts": deleted_counts
-    }
-
+@router.delete("/reset/all", response_model=ResetResponse)
+async def reset_everything(
+    db: Prisma = Depends(get_db),
+    admin: dict = Depends(get_admin_user)
+):
+    """Admin only: Complete system reset - deletes ALL data."""
+    return await pericope_service.reset_everything(db)

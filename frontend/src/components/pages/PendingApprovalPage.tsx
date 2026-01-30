@@ -1,8 +1,6 @@
-/**
- * PendingApprovalPage - Shown when user is logged in but not yet approved
- */
 import { Clock, LogOut } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { stageHeaderStyles } from '@/styles'
 
 export default function PendingApprovalPage() {
     const { user, logout, refreshUser } = useAuth()
@@ -14,7 +12,7 @@ export default function PendingApprovalPage() {
                     <Clock className="w-10 h-10 text-telha" />
                 </div>
 
-                <h1 className="text-2xl font-bold text-preto mb-2">
+                <h1 className={`${stageHeaderStyles.title} mb-2`}>
                     Pending Approval
                 </h1>
 

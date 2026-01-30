@@ -1,12 +1,10 @@
-/**
- * UserManagement - Admin section for managing user approvals and roles
- */
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { usersAPI, User } from '../../services/api'
 import { UserCheck, UserX, RefreshCw } from 'lucide-react'
+import { errorStateStyles, warningStateStyles } from '@/styles'
 
 const AVAILABLE_ROLES = ['admin', 'builder', 'validator', 'mentor', 'community', 'user']
 
@@ -68,9 +66,6 @@ export default function UserManagement() {
                 newRoles = [...currentRoles, roleToToggle]
             }
 
-            // Ensure at least one role remains? Optional. For now allow simple toggling.
-            // If removing 'user' and it's the last one, maybe warn? But schema default is user.
-
             await usersAPI.updateRoles(userId, newRoles)
             setUsers(users.map(u => u.id === userId ? { ...u, roles: newRoles } : u))
         } catch (err: any) {
@@ -96,12 +91,11 @@ export default function UserManagement() {
             </CardHeader>
             <CardContent>
                 {error && (
-                    <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">
+                    <div className={errorStateStyles.banner}>
                         {error}
                     </div>
                 )}
 
-                {/* Pending Users */}
                 {pendingUsers.length > 0 && (
                     <div className="mb-6">
                         <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
@@ -110,7 +104,7 @@ export default function UserManagement() {
                         </h3>
                         <div className="space-y-2">
                             {pendingUsers.map(user => (
-                                <div key={user.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                <div key={user.id} className={`${warningStateStyles.banner} flex items-center justify-between`}>
                                     <div>
                                         <span className="font-medium text-gray-900">{user.username}</span>
                                         <span className="text-gray-500 text-sm ml-2">{user.email}</span>
@@ -142,7 +136,6 @@ export default function UserManagement() {
                     </div>
                 )}
 
-                {/* All Users Table */}
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                         <thead className="text-xs text-gray-700 uppercase bg-gray-50">

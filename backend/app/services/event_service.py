@@ -1,18 +1,38 @@
-"""
-Event Service
-Business logic for managing events with all sub-models
-"""
 from typing import List, Dict, Any, Optional
 from prisma import Json
 from app.core.database import db
 from app.models.schemas import EventCreate
 
 
+def natural_sort_key_for_event(event: Any) -> tuple:
+    """
+    Generate a sort key for natural ordering of events by ID.
+    
+    Args:
+        event: An event object with eventId attribute.
+        
+    Returns:
+        A tuple (priority, value) for sorting. Priority 0 for e<number> format.
+    """
+    s = event.eventId
+    if s.startswith('e') and s[1:].isdigit():
+        return (0, int(s[1:]))
+    return (1, s)
+
+
 class EventService:
     
     @staticmethod
-    async def get_by_passage(passage_id: str) -> List[Dict]:
-        """Get all events for a passage with all related data"""
+    async def get_by_passage(passage_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve all events for a passage with all related data.
+        
+        Args:
+            passage_id: The ID of the passage.
+            
+        Returns:
+            A list of events sorted naturally by eventId, with all sub-models included.
+        """
         events = await db.event.find_many(
             where={"passageId": passage_id},
             include={
@@ -30,29 +50,25 @@ class EventService:
                 "keyTerms": True,
                 "clause": True
             },
-            # order={"eventId": "asc"} # Removed DB sorting to use natural sort in Python
         )
         
-        # Natural sort helper
-        def natural_sort_key(ev):
-            # Sort by number in e<number>
-            s = ev.eventId
-            if s.startswith('e') and s[1:].isdigit():
-                return (0, int(s[1:]))
-            return (1, s)
-
-        # Sort events
-        events.sort(key=natural_sort_key)
-        
-        # Transform to match frontend expectations
+        events.sort(key=natural_sort_key_for_event)
         result = [await EventService._transform_event(ev, passage_id) for ev in events]
         
         return result
 
     @staticmethod
-    async def create(passage_id: str, data: EventCreate) -> Dict:
-        """Create a new event with all sub-models"""
-        # Check if exists
+    async def create(passage_id: str, data: EventCreate) -> Dict[str, Any]:
+        """
+        Create a new event with all sub-models, or update if eventId already exists.
+        
+        Args:
+            passage_id: The ID of the passage.
+            data: The event creation data including roles, modifiers, etc.
+            
+        Returns:
+            The created or updated event in response format.
+        """
         existing = await db.event.find_unique(
             where={
                 "passageId_eventId": {
@@ -65,7 +81,6 @@ class EventService:
         if existing:
             return await EventService.update(existing.id, data)
 
-        # Build base event data
         event_data: Dict[str, Any] = {
             "passage": {"connect": {"id": passage_id}},
             "eventId": data.eventId,
@@ -79,7 +94,6 @@ class EventService:
         if data.clauseId:
             event_data["clause"] = {"connect": {"id": data.clauseId}}
         
-        # Add roles (including N/A participant: schema allows participantId null)
         if data.roles:
             role_creates = []
             for r in data.roles:
@@ -94,7 +108,6 @@ class EventService:
             if role_creates:
                 event_data["roles"] = {"create": role_creates}
         
-        # Add modifiers
         if data.modifiers and any([
             data.modifiers.happened, data.modifiers.realness, data.modifiers.when,
             data.modifiers.viewpoint, data.modifiers.phase, data.modifiers.repetition,
@@ -112,14 +125,12 @@ class EventService:
                 "causation": data.modifiers.causation,
             }}
         
-        # Add speech act
         if data.speechAct and (data.speechAct.type or data.speechAct.quotationType):
             event_data["speechAct"] = {"create": {
                 "type": data.speechAct.type or "",
                 "quotationType": data.speechAct.quotationType,
             }}
         
-        # Add pragmatic
         if data.pragmatic and any([
             data.pragmatic.register, data.pragmatic.socialAxis,
             data.pragmatic.prominence, data.pragmatic.pacing
@@ -131,7 +142,6 @@ class EventService:
                 "pacing": data.pragmatic.pacing,
             }}
         
-        # Add emotions (use participantId scalar only; nested create rejects participant relation)
         if data.emotions:
             emotion_creates = []
             for emo in data.emotions:
@@ -153,15 +163,12 @@ class EventService:
             if emotion_creates:
                 event_data["emotions"] = {"create": emotion_creates}
         
-        # Add narrator stance
         if data.narratorStance and data.narratorStance.stance:
             event_data["narratorStance"] = {"create": {"stance": data.narratorStance.stance}}
         
-        # Add audience response
         if data.audienceResponse and data.audienceResponse.response:
             event_data["audienceResponse"] = {"create": {"response": data.audienceResponse.response}}
         
-        # Add LA retrieval
         if data.laRetrieval and any([
             data.laRetrieval.emotionTags, data.laRetrieval.eventTags,
             data.laRetrieval.registerTags, data.laRetrieval.discourseTags,
@@ -175,7 +182,6 @@ class EventService:
                 "socialTags": Json(data.laRetrieval.socialTags or []),
             }}
         
-        # Add figurative
         if data.figurative and data.figurative.isFigurative:
             event_data["figurative"] = {"create": {
                 "isFigurative": data.figurative.isFigurative,
@@ -188,7 +194,6 @@ class EventService:
                 "translationNote": data.figurative.translationNote,
             }}
         
-        # Add key terms
         if data.keyTerms:
             term_creates = [{
                 "termId": kt.termId,
@@ -198,7 +203,6 @@ class EventService:
             } for kt in data.keyTerms]
             event_data["keyTerms"] = {"create": term_creates}
         
-        # Create the event
         event = await db.event.create(
             data=event_data,
             include={
@@ -215,13 +219,23 @@ class EventService:
             }
         )
         
-        # Get passage_id for returning transformed data
         return await EventService._transform_event(event, passage_id)
 
     @staticmethod
     async def update(id: str, data: EventCreate) -> Dict:
-        """Update event and all its nested relations"""
-        # Get current event to find passage_id and existing relations
+        """
+        Update event and all its nested relations.
+        
+        Args:
+            id: The event ID.
+            data: The event data to update.
+            
+        Returns:
+            The updated event in response format.
+            
+        Raises:
+            ValueError: If event not found.
+        """
         current = await db.event.find_unique(
             where={"id": id},
             include={
@@ -238,7 +252,6 @@ class EventService:
         
         passage_id = current.passageId
         
-        # Build role creates (including N/A participant: schema allows participantId null)
         role_creates = []
         for r in (data.roles or []):
             role_data: Dict[str, Any] = {"role": r.role or ""}
@@ -250,7 +263,6 @@ class EventService:
                     role_data["participant"] = {"connect": {"id": participant.id}}
             role_creates.append(role_data)
 
-        # Build update data
         update_data: Dict[str, Any] = {
             "category": data.category,
             "eventCore": data.eventCore,
@@ -266,7 +278,6 @@ class EventService:
         if data.clauseId:
             update_data["clauseId"] = data.clauseId
         
-        # Update modifiers (upsert pattern)
         if data.modifiers:
             update_data["modifiers"] = {
                 "upsert": {
@@ -295,7 +306,6 @@ class EventService:
                 }
             }
         
-        # Update speech act (always update if speechAct data is provided, even with empty values for N/A)
         if data.speechAct is not None:
             update_data["speechAct"] = {
                 "upsert": {
@@ -310,7 +320,6 @@ class EventService:
                 }
             }
         
-        # Update pragmatic
         if data.pragmatic:
             update_data["pragmatic"] = {
                 "upsert": {
@@ -329,7 +338,6 @@ class EventService:
                 }
             }
         
-        # Update emotions (delete all and recreate; use participantId scalar only for nested create)
         if data.emotions is not None:
             emotion_creates = []
             for emo in data.emotions:
@@ -353,7 +361,6 @@ class EventService:
                 "create": emotion_creates,
             }
         
-        # Update narrator stance
         if data.narratorStance and data.narratorStance.stance:
             update_data["narratorStance"] = {
                 "upsert": {
@@ -361,10 +368,9 @@ class EventService:
                     "update": {"stance": data.narratorStance.stance}
                 }
             }
-        elif data.narratorStance and current.narratorStance: # Only delete if exists
+        elif data.narratorStance and current.narratorStance:
              update_data["narratorStance"] = {"delete": True}
         
-        # Update audience response
         if data.audienceResponse and data.audienceResponse.response:
             update_data["audienceResponse"] = {
                 "upsert": {
@@ -372,10 +378,9 @@ class EventService:
                     "update": {"response": data.audienceResponse.response}
                 }
             }
-        elif data.audienceResponse and current.audienceResponse: # Only delete if exists
+        elif data.audienceResponse and current.audienceResponse:
              update_data["audienceResponse"] = {"delete": True}
         
-        # Update LA retrieval
         if data.laRetrieval:
             update_data["laRetrieval"] = {
                 "upsert": {
@@ -396,7 +401,6 @@ class EventService:
                 }
             }
         
-        # Update figurative
         if data.figurative:
             if data.figurative.isFigurative:
                 update_data["figurative"] = {
@@ -424,11 +428,9 @@ class EventService:
                     }
                 }
             else:
-                # Delete figurative if not figurative
                 if current.figurative:
                     update_data["figurative"] = {"delete": True}
         
-        # Update key terms (delete all and recreate)
         if data.keyTerms is not None:
             term_creates = [{
                 "termId": kt.termId,
@@ -441,7 +443,6 @@ class EventService:
                 "create": term_creates,
             }
         
-        # Perform the update (include participant on roles so _transform_event returns logical participantId for UI)
         event = await db.event.update(
             where={"id": id},
             data=update_data,
@@ -463,7 +464,16 @@ class EventService:
 
     @staticmethod
     async def _transform_event(event, passage_id: str) -> Dict:
-        """Transform Prisma event to response format. Roles always use logical participantId (p1, p2) for UI."""
+        """
+        Transform Prisma event to response format.
+        
+        Args:
+            event: The Prisma event object.
+            passage_id: The passage ID.
+            
+        Returns:
+            Event dictionary with roles using logical participantId for UI.
+        """
         roles_out = []
         for r in (event.roles or []):
             if r.participant:
@@ -569,11 +579,19 @@ class EventService:
     async def patch(id: str, data) -> Dict:
         """
         Partial update event - only update fields that are provided in the delta.
-        This is more efficient than full update when only changing a few fields.
+        
+        Args:
+            id: The event ID.
+            data: The partial event data to update.
+            
+        Returns:
+            The updated event in response format.
+            
+        Raises:
+            ValueError: If event not found.
         """
         from app.models.schemas import EventPatch
         
-        # Get current event to find passage_id and for comparison
         current = await db.event.find_unique(
             where={"id": id},
             include={
@@ -596,7 +614,6 @@ class EventService:
         passage_id = current.passageId
         update_data: Dict[str, Any] = {}
         
-        # Only update scalar fields if provided
         if data.category is not None:
             update_data["category"] = data.category
         if data.eventCore is not None:
@@ -607,9 +624,7 @@ class EventService:
             update_data["chainPosition"] = data.chainPosition
         if data.narrativeFunction is not None:
             update_data["narrativeFunction"] = data.narrativeFunction
-        # Note: clauseId is intentionally not updated in patch - it's a FK that requires full update
         
-        # Only update roles if provided (including N/A participant: schema allows participantId null)
         if data.roles is not None:
             participant_ids = [r.participantId for r in data.roles if r.participantId]
             participants = await db.participant.find_many(
@@ -636,7 +651,6 @@ class EventService:
                 "create": role_creates,
             }
         
-        # Only update modifiers if provided
         if data.modifiers is not None:
             update_data["modifiers"] = {
                 "upsert": {
@@ -665,7 +679,6 @@ class EventService:
                 }
             }
         
-        # Only update speechAct if provided
         if data.speechAct is not None:
             update_data["speechAct"] = {
                 "upsert": {
@@ -680,7 +693,6 @@ class EventService:
                 }
             }
         
-        # Only update pragmatic if provided
         if data.pragmatic is not None:
             update_data["pragmatic"] = {
                 "upsert": {
@@ -699,7 +711,6 @@ class EventService:
                 }
             }
         
-        # Only update narratorStance if provided
         if data.narratorStance is not None:
             if data.narratorStance.stance:
                 update_data["narratorStance"] = {
@@ -711,7 +722,6 @@ class EventService:
             elif current.narratorStance:
                 update_data["narratorStance"] = {"delete": True}
         
-        # Only update audienceResponse if provided
         if data.audienceResponse is not None:
             if data.audienceResponse.response:
                 update_data["audienceResponse"] = {
@@ -723,7 +733,6 @@ class EventService:
             elif current.audienceResponse:
                 update_data["audienceResponse"] = {"delete": True}
         
-        # Only update laRetrieval if provided
         if data.laRetrieval is not None:
             update_data["laRetrieval"] = {
                 "upsert": {
@@ -744,7 +753,6 @@ class EventService:
                 }
             }
         
-        # Only update figurative if provided
         if data.figurative is not None:
             if data.figurative.isFigurative:
                 update_data["figurative"] = {
@@ -774,7 +782,6 @@ class EventService:
             elif current.figurative:
                 update_data["figurative"] = {"delete": True}
         
-        # Only update keyTerms if provided
         if data.keyTerms is not None:
             term_creates = [{
                 "termId": kt.termId,
@@ -787,9 +794,7 @@ class EventService:
                 "create": term_creates,
             }
         
-        # Only update emotions if provided
         if data.emotions is not None:
-            # Get all participants for emotion links
             participant_ids = [e.participantId for e in data.emotions if e.participantId]
             participants = await db.participant.find_many(
                 where={
@@ -818,9 +823,7 @@ class EventService:
                 "create": emotion_creates,
             }
         
-        # Perform the update only if there's something to update
         if not update_data:
-            # No changes, just return current data
             return await EventService._transform_event(current, passage_id)
         
         event = await db.event.update(
@@ -845,8 +848,15 @@ class EventService:
 
     @staticmethod
     async def delete(id: str) -> Dict:
-        """Delete an event"""
+        """
+        Delete an event.
+        
+        Args:
+            id: The event ID.
+            
+        Returns:
+            The deleted event data.
+        """
         return await db.event.delete(
             where={"id": id}
         )
-

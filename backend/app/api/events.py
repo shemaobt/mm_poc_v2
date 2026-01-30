@@ -1,6 +1,3 @@
-"""
-Events API Router
-"""
 from typing import List
 from fastapi import APIRouter, HTTPException, Path
 
@@ -28,7 +25,6 @@ async def create_event(
     try:
         return await EventService.create(passage_id, data)
     except Exception as e:
-        # Detailed error log could go here
         raise HTTPException(status_code=500, detail=str(e))
 
 

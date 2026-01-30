@@ -1,6 +1,6 @@
 # Frontend
 
-React frontend with Vite and TypeScript.
+React + Vite + TypeScript. Tailwind for styling; Zustand for state; centralized style constants in `src/styles/`.
 
 ## Setup
 
@@ -17,23 +17,19 @@ Open http://localhost:5173
 npm run build
 ```
 
-## Project Structure
+## Structure
 
 ```
-frontend/
-├── src/
-│   ├── components/
-│   │   ├── layout/       # Header, ProgressBar, etc.
-│   │   ├── stages/       # Stage 1-5 components
-│   │   └── common/       # Reusable components
-│   ├── data/             # TRIPOD constants
-│   ├── services/         # API client
-│   ├── stores/           # Zustand state management
-│   ├── types/            # TypeScript types
-│   ├── styles/           # CSS
-│   ├── App.tsx
-│   └── main.tsx
-├── index.html
-├── package.json
-└── vite.config.ts
+src/
+├── components/   # layout, pages, stages (Stage1–5), ui primitives, common
+├── constants/    # app constants (e.g. tripod)
+├── contexts/     # Auth, Sidebar
+├── hooks/        # useOptions, etc.
+├── services/     # api.ts (Axios client)
+├── stores/       # passageStore (Zustand)
+├── styles/       # main.css + centralized style constants (cards, badges, states, layout)
+├── types/        # shared TypeScript types
+├── utils/        # cn, etc.
+├── App.tsx
+└── main.tsx
 ```

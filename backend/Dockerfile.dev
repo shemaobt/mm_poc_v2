@@ -1,0 +1,41 @@
+# Development Dockerfile using uv
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files and package source (hatchling needs app/ for editable install)
+COPY pyproject.toml uv.lock README.md ./
+COPY app ./app
+
+# Install dependencies (including dev)
+RUN uv sync --frozen
+
+# Copy application code
+COPY . .
+
+# Add venv to PATH
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Generate Prisma client
+RUN prisma generate
+
+# Pre-load BHSA data during build
+RUN python -c "from tf.app import use; use('ETCBC/bhsa', silent=False)"
+
+ENV PORT=8000
+EXPOSE 8000
+
+# Ensure entrypoint is executable
+RUN chmod +x entrypoint.sh
+
+# Default command for development
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

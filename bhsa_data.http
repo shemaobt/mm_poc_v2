@@ -22,7 +22,7 @@ Content-Type: multipart/form-data; boundary=boundary
 Content-Disposition: form-data; name="file"; filename="bhsa_data.zip"
 Content-Type: application/zip
 
-< /Users/joao/Downloads/text-fabric-data/github.zip
+< /path/to/your/github.zip
 --boundary--
 
 

@@ -1,6 +1,3 @@
-/**
- * AuthContext - Authentication state management
- */
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { authAPI, User } from '../services/api'
 
@@ -24,7 +21,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
-    // Check for existing token on mount
     useEffect(() => {
         const initAuth = async () => {
             const token = localStorage.getItem(TOKEN_KEY)
@@ -33,7 +29,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     const userData = await authAPI.me()
                     setUser(userData)
                 } catch (error) {
-                    // Token invalid or expired
                     localStorage.removeItem(TOKEN_KEY)
                 }
             }
@@ -46,14 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { access_token } = await authAPI.login(username, password)
         localStorage.setItem(TOKEN_KEY, access_token)
 
-        // Fetch user data
         const userData = await authAPI.me()
         setUser(userData)
     }
 
     const signup = async (username: string, email: string, password: string) => {
         await authAPI.signup(username, email, password)
-        // After signup, user needs to login
     }
 
     const logout = () => {

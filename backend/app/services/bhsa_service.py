@@ -1,20 +1,19 @@
-"""
-BHSA Service - Biblical Hebrew Data Access
-Functional approach using text-fabric library
-"""
 import re
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from tf.app import use
 
+from app.core.config import get_settings
 
-# ============================================================
-# PURE FUNCTIONS - Book Name Mapping
-# ============================================================
 
 def get_book_names_mapping() -> Dict[str, str]:
-    """Pure function returning book name mappings"""
+    """
+    Return a mapping of common book name variants to BHSA-format names.
+    
+    Returns:
+        A dictionary mapping lowercase book names/abbreviations to BHSA format.
+    """
     return {
         "genesis": "Genesis", "gen": "Genesis",
         "exodus": "Exodus", "exod": "Exodus", "ex": "Exodus",
@@ -59,18 +58,24 @@ def get_book_names_mapping() -> Dict[str, str]:
 
 
 def normalize_book_name(book: str) -> str:
-    """Pure function to normalize book name to BHSA format with fuzzy matching"""
+    """
+    Normalize a book name to BHSA format using direct or fuzzy matching.
+    
+    Args:
+        book: The book name to normalize (e.g., "Gen", "Genesis", "1 Samuel").
+        
+    Returns:
+        The BHSA-formatted book name, or the original if no match found.
+    """
     mapping = get_book_names_mapping()
     book_lower = book.lower().strip()
     
-    # Direct match
     if book_lower in mapping:
         return mapping[book_lower]
     
-    # Fuzzy match - find closest book name
     best_match = None
     best_score = 0
-    threshold = 0.7  # Minimum similarity required
+    threshold = 0.7
     
     for key, bhsa_name in mapping.items():
         score = _similarity(book_lower, key)
@@ -82,27 +87,27 @@ def normalize_book_name(book: str) -> str:
         print(f"[BHSA] Fuzzy matched '{book}' -> '{best_match}' (score: {best_score:.2f})")
         return best_match
     
-    # No match found, return original
     return book
 
 
 def _similarity(s1: str, s2: str) -> float:
     """
-    Calculate similarity ratio between two strings using sequence matching.
-    Returns a value between 0 and 1.
+    Calculate similarity ratio between two strings using longest common subsequence.
+    
+    Args:
+        s1: First string to compare.
+        s2: Second string to compare.
+        
+    Returns:
+        A similarity score between 0.0 and 1.0.
     """
     if not s1 or not s2:
         return 0.0
     
-    # Quick check for exact match
     if s1 == s2:
         return 1.0
     
-    # Use simple character-based similarity
-    # Count matching characters in order (longest common subsequence approach)
     len1, len2 = len(s1), len(s2)
-    
-    # Create DP table for LCS
     dp = [[0] * (len2 + 1) for _ in range(len1 + 1)]
     
     for i in range(1, len1 + 1):
@@ -113,19 +118,21 @@ def _similarity(s1: str, s2: str) -> float:
                 dp[i][j] = max(dp[i-1][j], dp[i][j-1])
     
     lcs_length = dp[len1][len2]
-    
-    # Similarity is LCS length divided by max string length
     return lcs_length / max(len1, len2)
 
 
 def parse_reference(ref_string: str) -> Tuple[str, int, int, int]:
     """
-    Pure function to parse biblical reference
+    Parse a biblical reference string into its components.
     
-    Returns: (book, chapter, start_verse, end_verse)
-    Examples:
-        "Ruth 1:1-6" -> ("Ruth", 1, 1, 6)
-        "Gen 1:1" -> ("Genesis", 1, 1, 1)
+    Args:
+        ref_string: A reference like "Ruth 1:1-6" or "Gen 1:1".
+        
+    Returns:
+        A tuple of (book, chapter, start_verse, end_verse).
+        
+    Raises:
+        ValueError: If the reference cannot be parsed.
     """
     ref_string = ref_string.strip()
     
@@ -152,13 +159,30 @@ def parse_reference(ref_string: str) -> Tuple[str, int, int, int]:
 
 
 def is_mainline_clause(clause_type: str) -> bool:
-    """Pure function to determine if clause is mainline"""
+    """
+    Determine if a clause type represents a mainline narrative clause.
+    
+    Args:
+        clause_type: The BHSA clause type code.
+        
+    Returns:
+        True if the clause is mainline (Way0 or WayX), False otherwise.
+    """
     mainline_types = {"Way0", "WayX"}
     return clause_type in mainline_types
 
 
 def get_chain_position(clause_type: str, prev_type: Optional[str]) -> str:
-    """Pure function to determine chain position"""
+    """
+    Determine the chain position of a clause relative to its predecessor.
+    
+    Args:
+        clause_type: The current clause type.
+        prev_type: The previous clause type, or None if first clause.
+        
+    Returns:
+        One of "initial", "continuation", or "break".
+    """
     if clause_type in ("Way0", "WayX"):
         if prev_type not in ("Way0", "WayX"):
             return "initial"
@@ -168,16 +192,23 @@ def get_chain_position(clause_type: str, prev_type: Optional[str]) -> str:
     return "continuation"
 
 
-def extract_lemmas(words: List, F) -> List[str]:
-    """Extract lemmas from words, filtering out grammatical particles"""
+def extract_lemmas(words: List[Any], F: Any) -> List[str]:
+    """
+    Extract lemmas from word nodes, filtering out grammatical particles.
+    
+    Args:
+        words: List of BHSA word nodes.
+        F: The text-fabric Features object.
+        
+    Returns:
+        A list of cleaned lemma strings.
+    """
     lemmas = []
     for w in words:
         pos = F.sp.v(w)
-        # Skip articles, prepositions, conjunctions
         if pos in ('art', 'prep', 'conj'):
             continue
         
-        # Get lemma
         if hasattr(F, 'lex_utf8'):
             lemma = F.lex_utf8.v(w)
         elif hasattr(F, 'g_lex_utf8'):
@@ -191,29 +222,48 @@ def extract_lemmas(words: List, F) -> List[str]:
     return lemmas
 
 
-# ============================================================
-# BHSA SERVICE CLASS
-# ============================================================
-# Passage fetch is clause-by-clause from BHSA: we use BHSA clause nodes
-# as the unit, never word nodes. The otype for that unit must be "clause".
 BHSA_PASSAGE_UNIT_OTYPE = "clause"
 
 
 class BHSAService:
-    """Service for accessing BHSA data using text-fabric"""
+    """
+    Service for accessing BHSA (Biblia Hebraica Stuttgartensia Amstelodamensis) data.
+    
+    Uses text-fabric to load and query biblical Hebrew clause and word data.
+    Passages are extracted clause-by-clause using BHSA clause nodes.
+    """
     
     def __init__(self, bhsa_path: Optional[str] = None):
-        """Initialize BHSA service"""
+        """
+        Initialize the BHSA service.
+        
+        Args:
+            bhsa_path: Optional custom path to BHSA data. If None, uses default.
+        """
         self.tf_api = None
         self.bhsa_path = bhsa_path
         self._is_loaded = False
         self._loading_message = "Not loaded"
     
     def get_loading_message(self) -> str:
+        """
+        Get the current loading status message.
+        
+        Returns:
+            A string describing the current loading state.
+        """
         return self._loading_message
 
     def load_bhsa(self, force_reload: bool = False) -> None:
-        """Load BHSA data from text-fabric"""
+        """
+        Load BHSA data from text-fabric, optionally downloading from GCS first.
+        
+        Args:
+            force_reload: If True, reload even if already loaded.
+            
+        Raises:
+            RuntimeError: If loading fails.
+        """
         if self._is_loaded and not force_reload:
             self._loading_message = "Data already loaded"
             return
@@ -221,8 +271,7 @@ class BHSAService:
         try:
             self._loading_message = "Initializing BHSA data load..."
             
-            # Check for GCS Bucket download
-            bucket_name = os.getenv("GCS_BUCKET_NAME")
+            bucket_name = get_settings().gcs_bucket_name
             if bucket_name:
                 self._loading_message = f"Checking GCS bucket: {bucket_name}..."
                 self._download_from_gcs(bucket_name)
@@ -231,7 +280,6 @@ class BHSAService:
                 self._loading_message = f"Loading Text-Fabric data from {self.bhsa_path}..."
                 self.tf_api = use(self.bhsa_path, silent=False)
             else:
-                # Try to use local data
                 self._loading_message = "Loading Text-Fabric data (ETCBC/bhsa)..."
                 self.tf_api = use("ETCBC/bhsa", silent=False)
             
@@ -242,9 +290,13 @@ class BHSAService:
             raise RuntimeError(f"Failed to load BHSA: {str(e)}")
 
     def _download_from_gcs(self, bucket_name: str) -> None:
-        """Download text-fabric data from GCS bucket if not exists"""
+        """
+        Download text-fabric data from a GCS bucket if not already present locally.
+        
+        Args:
+            bucket_name: The name of the GCS bucket containing the data.
+        """
         try:
-            # Only try to import google-cloud-storage if we have a bucket name
             try:
                 from google.cloud import storage
             except ImportError:
@@ -254,11 +306,9 @@ class BHSAService:
 
             print(f"Checking GCS bucket: {bucket_name}")
             
-            # Target directory
             tf_data_dir = Path(os.path.expanduser("~/text-fabric-data"))
             github_dir = tf_data_dir / "github"
             
-            # If data already exists, skip download (unless we want to force check)
             if github_dir.exists():
                 print(f"Data found at {github_dir}, skipping download.")
                 self._loading_message = "Local data found, skipping download..."
@@ -273,14 +323,10 @@ class BHSAService:
             blobs = bucket.list_blobs(prefix="text-fabric-data/")
             
             count = 0
-            # Convert iterator to list to get length if possible, or just iterate
-            # Listing blobs takes time too
             all_blobs = list(blobs)
             total_blobs = len(all_blobs)
             
             for blob in all_blobs:
-                # Remove prefix 'text-fabric-data/' from extraction path to match expected structure
-                # We want ~/text-fabric-data/github/...
                 rel_path = blob.name.replace("text-fabric-data/", "", 1)
                 if not rel_path or rel_path.endswith("/"): 
                     continue
@@ -299,20 +345,33 @@ class BHSAService:
         except Exception as e:
             print(f"Error downloading from GCS: {e}")
             self._loading_message = f"GCS Error: {str(e)}. Falling back to TF download..."
-            # Don't raise here, attempting to load what we have or falling back
 
     
     def is_loaded(self) -> bool:
-        """Check if BHSA is loaded"""
+        """
+        Check if BHSA data has been loaded.
+        
+        Returns:
+            True if data is loaded and ready, False otherwise.
+        """
         return self._is_loaded
     
-    def extract_passage(self, book: str, chapter: int, start_verse: int, end_verse: int) -> Dict:
+    def extract_passage(self, book: str, chapter: int, start_verse: int, end_verse: int) -> Dict[str, Any]:
         """
-        Extract passage data from BHSA by verse range, then by clause.
-
-        Uses BHSA/ETCBC clause nodes (L.d(verse_node, otype="clause")), not words.
-        Each row is one BHSA clause; some clauses are single-word (e.g. short
-        imperatives like "Go", "return")—that is expected ETCBC annotation.
+        Extract passage data from BHSA by verse range, clause-by-clause.
+        
+        Args:
+            book: The BHSA-format book name.
+            chapter: The chapter number.
+            start_verse: The starting verse number.
+            end_verse: The ending verse number.
+            
+        Returns:
+            A dictionary with reference, source_lang, and clauses list.
+            
+        Raises:
+            RuntimeError: If BHSA is not loaded.
+            ValueError: If the starting verse cannot be found.
         """
         if not self._is_loaded:
             raise RuntimeError("BHSA not loaded")
@@ -328,7 +387,6 @@ class BHSAService:
         actual_end_verse = start_verse
         
         for verse_num in range(start_verse, end_verse + 1):
-            # Get verse node
             try:
                 verse_node = T.nodeFromSection((book, chapter, verse_num))
             except Exception:
@@ -338,7 +396,6 @@ class BHSAService:
             
             actual_end_verse = verse_num
             
-            # Fetch clause-by-clause from BHSA: use clause nodes only (not words).
             clause_nodes = L.d(verse_node, otype=BHSA_PASSAGE_UNIT_OTYPE)
             for clause_node in clause_nodes:
                 clause_data = self._extract_clause_data(
@@ -348,7 +405,6 @@ class BHSAService:
                 clause_id += 1
                 prev_clause_type = clause_data["clause_type"]
         
-        # Build reference string
         if start_verse == actual_end_verse:
             ref_string = f"{book} {chapter}:{start_verse}"
         else:
@@ -361,19 +417,27 @@ class BHSAService:
         }
     
     def _extract_clause_data(
-        self, clause_node, verse_num: int, clause_id: int,
-        prev_type: Optional[str], F, L, T
-    ) -> Dict:
+        self, clause_node: Any, verse_num: int, clause_id: int,
+        prev_type: Optional[str], F: Any, L: Any, T: Any
+    ) -> Dict[str, Any]:
         """
         Extract data for a single BHSA clause node.
-        Input must be a clause node (otype='clause'); we get words only as
-        children of this clause for gloss/verb, not as top-level units.
+        
+        Args:
+            clause_node: The text-fabric clause node.
+            verse_num: The verse number this clause belongs to.
+            clause_id: The sequential clause ID within the passage.
+            prev_type: The previous clause type for chain position calculation.
+            F: The text-fabric Features object.
+            L: The text-fabric Locality object.
+            T: The text-fabric Text object.
+            
+        Returns:
+            A dictionary with clause data including text, gloss, type, verb info, etc.
         """
-        # Clause-level: text and type from the BHSA clause node
         clause_text = T.text(clause_node)
         clause_type = F.typ.v(clause_node) or "Unknown"
 
-        # Words only as children of this clause (for gloss/verb), not iterating words as clauses
         word_nodes = L.d(clause_node, otype="word")
         glosses = []
         for w in word_nodes:
@@ -382,7 +446,6 @@ class BHSAService:
                 glosses.append(gloss)
         gloss_text = " ".join(glosses)
         
-        # Get verb information
         verb_lemma = None
         verb_lemma_ascii = None
         verb_stem = None
@@ -403,7 +466,6 @@ class BHSAService:
                 verb_tense = F.vt.v(w)
                 break
         
-        # Get subjects, objects, names
         subjects = []
         objects = []
         names = []
@@ -413,7 +475,6 @@ class BHSAService:
             phrase_function = F.function.v(phrase_node)
             phrase_words = L.d(phrase_node, otype="word")
             
-            # Extract lemmas
             phrase_lemmas = extract_lemmas(phrase_words, F)
             clean_phrase = ' '.join(phrase_lemmas) if phrase_lemmas else None
             
@@ -422,7 +483,6 @@ class BHSAService:
             elif phrase_function == "Objc" and clean_phrase:
                 objects.append(clean_phrase)
             
-            # Check for proper names
             for w in phrase_words:
                 if F.sp.v(w) == "nmpr":
                     if hasattr(F, 'lex_utf8'):
@@ -432,10 +492,8 @@ class BHSAService:
                     if name:
                         names.append(name.rstrip("/=[]"))
         
-        # Check for כי
         has_ki = any(F.lex.v(w) == "KJ/" for w in word_nodes)
         
-        # Build clause object using pure functions
         return {
             "clause_id": clause_id,
             "verse": verse_num,
@@ -455,15 +513,16 @@ class BHSAService:
         }
 
 
-# ============================================================
-# FACTORY FUNCTION
-# ============================================================
-
 _bhsa_service_instance: Optional[BHSAService] = None
 
 
 def get_bhsa_service() -> BHSAService:
-    """Get or create BHSA service singleton"""
+    """
+    Get or create the singleton BHSA service instance.
+    
+    Returns:
+        The shared BHSAService instance.
+    """
     global _bhsa_service_instance
     if _bhsa_service_instance is None:
         _bhsa_service_instance = BHSAService()

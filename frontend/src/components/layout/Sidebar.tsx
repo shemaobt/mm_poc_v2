@@ -25,11 +25,9 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
     const [internalIsCollapsed, setInternalIsCollapsed] = useState(false)
     const { user, isAdmin, logout } = useAuth()
 
-    // Use external state if provided, otherwise use internal state
     const isCollapsed = externalIsCollapsed !== undefined ? externalIsCollapsed : internalIsCollapsed
     const setIsCollapsed = externalSetIsCollapsed || setInternalIsCollapsed
 
-    // Filter menu items based on role
     const allMenuItems = [
         { id: 'analysis' as ViewType, label: 'Editor', icon: Layout, adminOnly: false },
         { id: 'saved-maps' as ViewType, label: 'Saved Maps', icon: FolderOpen, adminOnly: false },
@@ -51,7 +49,6 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
     const SidebarContent = ({ isCollapsed: collapsed = false }: { isCollapsed?: boolean }) => (
         <div className="flex flex-col h-full overflow-hidden pt-4">
 
-            {/* Navigation */}
             {onViewChange && (
                 <nav className={`flex-1 space-y-1 transition-all duration-300 overflow-y-auto ${collapsed ? 'p-2' : 'p-3'}`}>
                     {menuItems.map((item) => {
@@ -91,18 +88,14 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
                 </nav>
             )}
 
-            {/* User info and actions */}
             <div className="border-t border-areia/30 shrink-0 mt-auto">
-                {/* User card */}
                 {user && (
                     <div className={`${collapsed ? 'p-2' : 'px-3 py-3'}`}>
                         <div className={`${collapsed ? '' : 'flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-areia/30 to-transparent'}`}>
-                            {/* Avatar */}
                             <div className={`shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-telha to-telha-dark flex items-center justify-center text-white font-bold text-sm shadow-md ${collapsed ? 'mx-auto' : ''}`}>
                                 {user.username.charAt(0).toUpperCase()}
                             </div>
 
-                            {/* User details */}
                             {!collapsed && (
                                 <div className="flex-1 min-w-0">
                                     <div className="font-semibold text-preto text-sm truncate">
@@ -119,9 +112,7 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
                     </div>
                 )}
 
-                {/* Actions */}
                 <div className={`flex ${collapsed ? 'flex-col items-center gap-1 p-2' : 'items-center justify-between px-3 pb-3'}`}>
-                    {/* Logout button */}
                     <Button
                         variant="ghost"
                         onClick={handleLogout}
@@ -132,7 +123,6 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
                         {!collapsed && <span className="text-xs ml-2">Logout</span>}
                     </Button>
 
-                    {/* Toggle button */}
                     <Button
                         variant="ghost"
                         size="icon"
@@ -153,7 +143,6 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
 
     return (
         <>
-            {/* Desktop Sidebar - Collapsible on lg+ */}
             <aside
                 className={`
                     hidden lg:flex fixed left-0 top-16 h-[calc(100vh-4rem)] bg-branco text-preto z-20 shadow-lg border-r border-areia/50
@@ -164,7 +153,6 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
                 <SidebarContent isCollapsed={isCollapsed} />
             </aside>
 
-            {/* Mobile Sidebar - Sheet */}
             <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
                 <SheetContent side="left" className="w-80 p-0 bg-branco border-r border-areia/50">
                     <SheetHeader className="sr-only">
@@ -175,7 +163,6 @@ export default function Sidebar({ currentView, onViewChange, onEditorHome, isCol
                 </SheetContent>
             </Sheet>
 
-            {/* Toggle button - Mobile only */}
             <Button
                 onClick={() => setIsMobileOpen(true)}
                 variant="ghost"

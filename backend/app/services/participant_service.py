@@ -1,20 +1,19 @@
-"""
-Participant Service
-Business logic for managing participants
-Functional approach using pure functions and immutable data structures
-"""
 from typing import List, Optional, Dict, Any
 from prisma import Json
 from app.core.database import db
 from app.models.schemas import ParticipantCreate, ParticipantResponse
 
-# ============================================================
-# PURE FUNCTIONS
-# ============================================================
 
 def build_participant_create_data(data: ParticipantCreate, passage_id: str) -> Dict[str, Any]:
     """
-    Pure function to transform creation data into DB format
+    Transform participant creation data into DB format.
+    
+    Args:
+        data: The participant creation request.
+        passage_id: The ID of the passage this participant belongs to.
+        
+    Returns:
+        A dictionary ready for Prisma create operation.
     """
     return {
         "passage": {"connect": {"id": passage_id}},
@@ -27,9 +26,16 @@ def build_participant_create_data(data: ParticipantCreate, passage_id: str) -> D
         "properties": Json([p.dict() for p in data.properties] if data.properties else [])
     }
 
+
 def build_participant_update_data(data: ParticipantCreate) -> Dict[str, Any]:
     """
-    Pure function to transform update data into DB format
+    Transform participant update data into DB format.
+    
+    Args:
+        data: The participant update request.
+        
+    Returns:
+        A dictionary ready for Prisma update operation.
     """
     update_dict = {
         "hebrew": data.hebrew,
@@ -44,35 +50,54 @@ def build_participant_update_data(data: ParticipantCreate) -> Dict[str, Any]:
         
     return update_dict
 
-# ============================================================
-# SERVICE FUNCTIONS (Async/IO)
-# ============================================================
+
+def natural_sort_key_for_participant(participant) -> tuple:
+    """
+    Generate a sort key for natural ordering of participants by ID.
+    
+    Args:
+        participant: A participant object with participantId attribute.
+        
+    Returns:
+        A tuple (priority, value) for sorting. Priority 0 for p<number> format,
+        priority 1 for other formats.
+    """
+    s = participant.participantId
+    if s.startswith('p') and s[1:].isdigit():
+        return (0, int(s[1:]))
+    return (1, s)
+
 
 class ParticipantService:
     
     @staticmethod
-    async def get_by_passage(passage_id: str) -> List[Dict]:
-        """Get all participants for a passage"""
+    async def get_by_passage(passage_id: str) -> List[Any]:
+        """
+        Retrieve all participants for a passage, sorted by participant ID.
+        
+        Args:
+            passage_id: The ID of the passage.
+            
+        Returns:
+            A list of participants sorted naturally by participantId (p1, p2, ..., p10).
+        """
         participants = await db.participant.find_many(
             where={"passageId": passage_id}
         )
-        
-        # Natural sort by numeric part of participantId (p1, p2, ... p10)
-        def natural_sort_key(p):
-            # Tuple sort: (priority, value)
-            # Priority 0: p<number> (sorted by number)
-            # Priority 1: everything else (sorted lexicographically)
-            s = p.participantId
-            if s.startswith('p') and s[1:].isdigit():
-                return (0, int(s[1:]))
-            return (1, s)
-
-        return sorted(participants, key=natural_sort_key)
+        return sorted(participants, key=natural_sort_key_for_participant)
 
     @staticmethod
-    async def create(passage_id: str, data: ParticipantCreate) -> Dict:
-        """Create a new participant"""
-        # Check if participantId already exists for this passage
+    async def create(passage_id: str, data: ParticipantCreate) -> Any:
+        """
+        Create a new participant or update if participantId already exists.
+        
+        Args:
+            passage_id: The ID of the passage.
+            data: The participant creation data.
+            
+        Returns:
+            The created or updated participant record.
+        """
         existing = await db.participant.find_unique(
             where={
                 "passageId_participantId": {
@@ -83,7 +108,6 @@ class ParticipantService:
         )
         
         if existing:
-            # Update existing if found (upsert logic basically)
             return await ParticipantService.update(existing.id, data)
             
         create_data = build_participant_create_data(data, passage_id)
@@ -94,8 +118,17 @@ class ParticipantService:
         return participant
 
     @staticmethod
-    async def update(id: str, data: ParticipantCreate) -> Dict:
-        """Update a participant"""
+    async def update(id: str, data: ParticipantCreate) -> Any:
+        """
+        Update an existing participant.
+        
+        Args:
+            id: The ID of the participant to update.
+            data: The updated participant data.
+            
+        Returns:
+            The updated participant record.
+        """
         update_data = build_participant_update_data(data)
         
         participant = await db.participant.update(
@@ -105,8 +138,16 @@ class ParticipantService:
         return participant
 
     @staticmethod
-    async def delete(id: str) -> Dict:
-        """Delete a participant"""
+    async def delete(id: str) -> Any:
+        """
+        Delete a participant.
+        
+        Args:
+            id: The ID of the participant to delete.
+            
+        Returns:
+            The deleted participant record.
+        """
         return await db.participant.delete(
             where={"id": id}
         )

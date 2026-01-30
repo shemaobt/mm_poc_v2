@@ -1,7 +1,3 @@
-"""
-FastAPI Main Application
-Functional approach with minimal side effects
-"""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,14 +22,11 @@ def _load_bhsa_background():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan"""
-    # Startup
     await connect_db()
     
-    # Start BHSA loading in background thread (don't block app startup)
     threading.Thread(target=_load_bhsa_background, daemon=True).start()
     
     yield
-    # Shutdown
     await disconnect_db()
 
 
@@ -46,7 +39,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS middleware - allow frontend origins
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -62,7 +54,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Include routers
     app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
     app.include_router(users.router, prefix="/api/users", tags=["Users"])
     app.include_router(bhsa.router, prefix="/api/bhsa", tags=["BHSA"])
