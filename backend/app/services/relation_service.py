@@ -1,19 +1,18 @@
-"""
-Relation Service
-Business logic for managing participant relations
-Functional approach using pure functions and immutable data structures
-"""
-from typing import List, Optional, Dict, Any
+from typing import List, Any, Dict
 from app.core.database import db
 from app.models.schemas import RelationCreate
 
-# ============================================================
-# PURE FUNCTIONS
-# ============================================================
 
 def build_relation_create_data(data: RelationCreate, passage_id: str) -> Dict[str, Any]:
     """
-    Pure function to transform creation data into DB format
+    Transform relation creation data into DB format.
+    
+    Args:
+        data: The relation creation request.
+        passage_id: The ID of the passage this relation belongs to.
+        
+    Returns:
+        A dictionary ready for Prisma create operation.
     """
     return {
         "passageId": passage_id,
@@ -23,15 +22,21 @@ def build_relation_create_data(data: RelationCreate, passage_id: str) -> Dict[st
         "targetId": data.targetId
     }
 
-# ============================================================
-# SERVICE FUNCTIONS (Async/IO)
-# ============================================================
 
 class RelationService:
     
     @staticmethod
-    async def get_by_passage(passage_id: str) -> List[Dict]:
-        """Get all relations for a passage"""
+    async def get_by_passage(passage_id: str) -> List[Any]:
+        """
+        Retrieve all participant relations for a passage.
+        
+        Args:
+            passage_id: The ID of the passage.
+            
+        Returns:
+            A list of relations with source and target participants included,
+            ordered by creation date.
+        """
         relations = await db.participantrelation.find_many(
             where={"passageId": passage_id},
             include={
@@ -43,8 +48,17 @@ class RelationService:
         return relations
 
     @staticmethod
-    async def create(passage_id: str, data: RelationCreate) -> Dict:
-        """Create a new relation"""
+    async def create(passage_id: str, data: RelationCreate) -> Any:
+        """
+        Create a new participant relation.
+        
+        Args:
+            passage_id: The ID of the passage.
+            data: The relation creation data.
+            
+        Returns:
+            The created relation with source and target included.
+        """
         create_data = build_relation_create_data(data, passage_id)
         
         relation = await db.participantrelation.create(
@@ -57,12 +71,17 @@ class RelationService:
         return relation
 
     @staticmethod
-    async def update(id: str, data: RelationCreate) -> Dict:
-        """Update a relation"""
-        # We only update fields, not the passageId (for safety)
-        # Note: sourceId and targetId changing might require re-linking logic if strictly relational,
-        # but here we just update fields since they are IDs.
-
+    async def update(id: str, data: RelationCreate) -> Any:
+        """
+        Update an existing participant relation.
+        
+        Args:
+            id: The ID of the relation to update.
+            data: The updated relation data.
+            
+        Returns:
+            The updated relation with source and target included.
+        """
         relation = await db.participantrelation.update(
             where={"id": id},
             data={
@@ -79,8 +98,16 @@ class RelationService:
         return relation
 
     @staticmethod
-    async def delete(id: str) -> Dict:
-        """Delete a relation"""
+    async def delete(id: str) -> Any:
+        """
+        Delete a participant relation.
+        
+        Args:
+            id: The ID of the relation to delete.
+            
+        Returns:
+            The deleted relation record.
+        """
         return await db.participantrelation.delete(
             where={"id": id}
         )

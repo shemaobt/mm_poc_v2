@@ -1,15 +1,7 @@
-"""
-Option Service
-Business logic for managing dynamic field options
-"""
 from typing import List, Optional
 from app.core.database import db
 from app.models.schemas import FieldOptionResponse, FieldOptionCreate
 
-
-# ============================================================
-# SERVICE FUNCTIONS (Async/IO)
-# ============================================================
 
 async def get_by_category(category: str) -> List[FieldOptionResponse]:
     """
@@ -38,7 +30,6 @@ async def get_all_categories() -> List[str]:
     Returns:
         List of category names
     """
-    # Using raw query to get distinct categories
     options = await db.fieldoption.find_many(
         distinct=["category"],
         order={"category": "asc"}
@@ -67,7 +58,6 @@ async def create(
     Raises:
         Exception if option already exists (unique constraint)
     """
-    # Get the current max sortOrder for this category
     existing = await db.fieldoption.find_many(
         where={"category": category},
         order={"sortOrder": "desc"},
@@ -120,7 +110,7 @@ async def delete(option_id: str) -> bool:
     if not option:
         return False
     if option.isDefault:
-        return False  # Cannot delete default options
+        return False
     
     await db.fieldoption.delete(where={"id": option_id})
     return True

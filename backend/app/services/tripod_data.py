@@ -1,20 +1,11 @@
-
-"""
-TRIPOD_SCHEMA Definition
-Single Source of Truth for Meaning Mapping (v5.2)
-Synchronized with bmm_v5_2_unified.html
-"""
-
 TRIPOD_SCHEMA = {
     "version": "5.2",
 
-    # 1. EVENT CATEGORIES
     "event_categories": [
         "STATE", "MOTION", "ACTION", "TRANSFER", "SPEECH", 
         "INTERNAL", "PROCESS", "RITUAL", "META"
     ],
 
-    # 2. EVENT CORES (Explicitly defined for validation)
     "event_cores": {
         "STATE": [
             { "core": "be", "gloss": "be (exist as)" },
@@ -220,25 +211,20 @@ TRIPOD_SCHEMA = {
         ]
     },
 
-    # 3. MAPPING (For backwards compatibility or internal logic)
     "semantic_roles": [
         "doer", "undergoer", "feeler", "receiver", "causer", 
         "beneficiary", "instrument", "location", "goal", "source", 
         "time", "manner", "content", "topic", "addressee",
-        # Extended from JS
         "hearer", "message", "origin", "destination", "place", "path", 
         "tool", "companion", "benefactor", "reason", "way", "timing"
     ],
 
-    # 4. PARTICIPANT TYPES
     "participant_types": [
         "person", "group", "divine", "animal", "plant", 
         "object", "place", "abstract", "time", "event",
-        # Added from v1
         "thing", "stuff", "time_entity", "idea"
     ],
 
-    # 4b. PARTICIPANT PROPERTIES
     "participant_properties": {
         "quantities": [
             "one", "two", "few", "many", "all", "mass", "unknown"
@@ -256,15 +242,14 @@ TRIPOD_SCHEMA = {
             "social_status": ["rich", "poor", "powerful", "weak", "honored", "despised", "noble", "common", "free", "slave"],
             "physical_state": ["strong", "weak", "beautiful", "plain", "blind", "deaf", "lame", "barren", "fertile"],
             "emotional_state": ["happy", "sad", "angry", "afraid", "peaceful", "anxious", "hopeful", "despairing"],
-            "shape": [] # Added as it was in v2, kept for compatibility
+            "shape": []
         },
         "degrees": ["slightly", "moderately", "very", "extremely"]
     },
 
-    # 5. RELATION CATEGORIES (With Subtypes)
     "relation_categories": [
         "kinship", "social", "possession", "part_whole", "origin",
-        "spatial", "temporal", "logical", "comparison" # Kept v2 additions
+        "spatial", "temporal", "logical", "comparison"
     ],
     
     "relation_subtypes": {
@@ -283,7 +268,6 @@ TRIPOD_SCHEMA = {
         "origin": ["from_place", "from_people", "created_by"]
     },
 
-    # 6. EVENT MODIFIERS (Enums)
     "event_modifiers": {
         "happened": ["yes", "no", "uncertain"],
         "realness": ["real", "possible", "required", "imagined"],
@@ -296,32 +280,24 @@ TRIPOD_SCHEMA = {
         "causation": ["direct", "caused", "allowed", "helped"]
     },
 
-    # 7. DISCOURSE RELATIONS
     "discourse_relations": [
         "sequence", "simultaneous", "cause", "result", "purpose", 
         "condition", "concession", "contrast", "explanation", 
         "elaboration", "background", "setting",
-        # Added from v1
         "circumstance"
     ],
 
-    # 8. EMOTIONS
     "emotions": [
-        # Positive
         "joy", "hope", "gratitude", "love", "relief", "contentment", 
         "compassion", "pride",
-        # Negative
         "grief", "sorrow", "fear", "anger", "despair", "shame", 
         "guilt", "jealousy", "bitterness", "loneliness", "anxiety", 
         "disgust", "frustration", "desolation",
-        # Complex
         "resolve", "longing", "awe", "surprise", "confusion", 
         "ambivalence", "resignation", "anticipation",
-        # v2 Additions (kept)
         "pity", "trust", "distrust", "contempt", "satisfaction", "determination", "envy", "hate"
     ],
     
-    # 9. SPEECH ACTS
     "speech_acts": [
         "stating", "asking_yes_no", "asking_what", "asking_why", "asking_how",
         "ordering", "forbidding", "requesting", "wishing", "promising",
@@ -330,7 +306,6 @@ TRIPOD_SCHEMA = {
     
     "quotation_types": ["direct", "indirect", "free_indirect"],
 
-    # 10. STAGE 4: ADVANCED LAYERS
     "pragmatic": {
         "register": ["narrative_formal", "narrative_casual", "speech_royal", "speech_formal", "speech_casual", "speech_intimate", "ceremonial", "legal", "poetic", "proverbial", "unspecified"],
         "social_axis": ["superior_to_inferior", "inferior_to_superior", "peer_to_peer", "divine_to_human", "human_to_divine", "prophet_to_authority", "stranger", "unspecified"],
