@@ -1,11 +1,3 @@
-/**
- * TRIPOD Constants - All dropdown options for the meaning map stages
- * Based on the Biblical Meaning Map (BMM) framework
- */
-
-// ============================================================
-// EVENT CATEGORIES
-// ============================================================
 export const EVENT_CATEGORIES = [
     { value: 'ACTION', label: 'Doing (action)' },
     { value: 'SPEECH', label: 'Saying (speech)' },
@@ -18,11 +10,7 @@ export const EVENT_CATEGORIES = [
     { value: 'META', label: 'Meta (narrative)' }
 ]
 
-// ============================================================
-// SEMANTIC ROLES
-// ============================================================
 export const SEMANTIC_ROLES = [
-    // Core thematic roles
     { value: 'doer', label: 'Doer (agent)' },
     { value: 'undergoer', label: 'Undergoer (patient)' },
     { value: 'feeler', label: 'Feeler (experiencer)' },
@@ -30,28 +18,24 @@ export const SEMANTIC_ROLES = [
     { value: 'recipient', label: 'Recipient' },
     { value: 'causer', label: 'Causer' },
     { value: 'beneficiary', label: 'Beneficiary' },
-    { value: 'benefactor', label: 'Benefactor' },  // Alias for beneficiary
+    { value: 'benefactor', label: 'Benefactor' },
     { value: 'instrument', label: 'Instrument' },
-    { value: 'tool', label: 'Tool' },  // Alias for instrument
-    // Location/direction roles
+    { value: 'tool', label: 'Tool' },
     { value: 'location', label: 'Location' },
-    { value: 'place', label: 'Place' },  // Alias for location
+    { value: 'place', label: 'Place' },
     { value: 'goal', label: 'Goal/Destination' },
-    { value: 'destination', label: 'Destination' },  // Alias for goal
+    { value: 'destination', label: 'Destination' },
     { value: 'source', label: 'Source/Origin' },
-    { value: 'origin', label: 'Origin' },  // Alias for source
+    { value: 'origin', label: 'Origin' },
     { value: 'path', label: 'Path' },
-    // Temporal/manner roles
     { value: 'time', label: 'Time' },
-    { value: 'timing', label: 'Timing' },  // Alias for time
+    { value: 'timing', label: 'Timing' },
     { value: 'manner', label: 'Manner' },
-    { value: 'way', label: 'Way' },  // Alias for manner
-    // Speech act roles
+    { value: 'way', label: 'Way' },
     { value: 'hearer', label: 'Hearer' },
     { value: 'speaker', label: 'Speaker' },
     { value: 'message', label: 'Message' },
     { value: 'addressee', label: 'Addressee' },
-    // Additional roles
     { value: 'companion', label: 'Companion' },
     { value: 'attribute', label: 'Attribute (property/state)' },
     { value: 'theme', label: 'Theme' },
@@ -61,24 +45,18 @@ export const SEMANTIC_ROLES = [
     { value: 'content', label: 'Content (speech/thought)' },
     { value: 'result', label: 'Result' },
     { value: 'cause', label: 'Cause' },
-    { value: 'reason', label: 'Reason' },  // Alias for cause
-    // Construction/creation roles
+    { value: 'reason', label: 'Reason' },
     { value: 'builder', label: 'Builder' },
     { value: 'product', label: 'Product (created thing)' },
     { value: 'material', label: 'Material' },
-    // Exchange/substitution roles
     { value: 'substitute_for', label: 'Substitute for' },
     { value: 'price', label: 'Price' },
-    // Perception/cognition roles
     { value: 'perceiver', label: 'Perceiver' },
     { value: 'phenomenon', label: 'Phenomenon (perceived)' },
     { value: 'cognizer', label: 'Cognizer' },
     { value: 'topic', label: 'Topic' }
 ]
 
-// ============================================================
-// EVENT MODIFIERS
-// ============================================================
 export const MODIFIERS = {
     happened: {
         label: 'Did it happen?',
@@ -161,9 +139,6 @@ export const MODIFIERS = {
     }
 }
 
-// ============================================================
-// SPEECH ACTS
-// ============================================================
 export const SPEECH_ACTS = [
     { value: 'stating', label: 'Stating (assertion)' },
     { value: 'asking_yes_no', label: 'Asking (yes/no)' },
@@ -188,9 +163,6 @@ export const QUOTATION_TYPES = [
     { value: 'free_indirect', label: 'Free indirect' }
 ]
 
-// ============================================================
-// DISCOURSE
-// ============================================================
 export const DISCOURSE_FUNCTIONS = [
     { value: 'mainline', label: 'Mainline (foreground)' },
     { value: 'background', label: 'Background' },
@@ -205,17 +177,17 @@ export const DISCOURSE_FUNCTIONS = [
 export const NARRATIVE_FUNCTIONS = [
     { value: 'setting', label: 'Setting (establishes time/place/characters)' },
     { value: 'inciting_incident', label: 'Inciting Incident (triggers the story)' },
-    { value: 'initiating_action', label: 'Initiating Action' },  // Alias
+    { value: 'initiating_action', label: 'Initiating Action' },
     { value: 'complication', label: 'Complication (raises tension)' },
     { value: 'development', label: 'Development (plot advances)' },
     { value: 'peak', label: 'Peak (climax/turning point)' },
-    { value: 'turning_point', label: 'Turning Point' },  // Alias for peak
+    { value: 'turning_point', label: 'Turning Point' },
     { value: 'resolution', label: 'Resolution (outcome)' },
-    { value: 'conclusion', label: 'Conclusion' },  // Alias for resolution
+    { value: 'conclusion', label: 'Conclusion' },
     { value: 'coda', label: 'Coda (final reflection)' },
     { value: 'background', label: 'Background (supporting info)' },
     { value: 'evaluation', label: 'Evaluation (narrator comment)' },
-    { value: 'comment', label: 'Comment' },  // Alias for evaluation
+    { value: 'comment', label: 'Comment' },
     { value: 'flashback', label: 'Flashback (prior event)' },
     { value: 'foreshadowing', label: 'Foreshadowing (hints at future)' }
 ]
@@ -229,9 +201,6 @@ export const CHAIN_POSITIONS = [
     { value: 'break', label: 'Break' }
 ]
 
-// ============================================================
-// PRAGMATIC
-// ============================================================
 export const DISCOURSE_REGISTERS = [
     { value: 'narrative_formal', label: 'Narrative (formal)' },
     { value: 'narrative_casual', label: 'Narrative (casual)' },
@@ -265,9 +234,6 @@ export const PACING_OPTIONS = [
     { value: 'abrupt', label: 'Abrupt' }
 ]
 
-// ============================================================
-// EMOTIONS
-// ============================================================
 export const EMOTIONS = [
     { value: 'joy', label: 'Joy' },
     { value: 'grief', label: 'Grief' },
@@ -312,9 +278,6 @@ export const CONFIDENCE_LEVELS = [
     { value: 'low', label: 'Low' }
 ]
 
-// ============================================================
-// NARRATOR STANCE & AUDIENCE RESPONSE
-// ============================================================
 export const NARRATOR_STANCES = [
     { value: 'sympathetic', label: 'Sympathetic' },
     { value: 'critical', label: 'Critical' },
@@ -337,9 +300,6 @@ export const AUDIENCE_RESPONSES = [
     { value: 'satisfaction', label: 'Satisfaction' }
 ]
 
-// ============================================================
-// FIGURATIVE LANGUAGE
-// ============================================================
 export const FIGURE_TYPES = [
     { value: 'metaphor', label: 'Metaphor (A is B)' },
     { value: 'simile', label: 'Simile (A is like B)' },
@@ -366,9 +326,6 @@ export const TRANSFERABILITY = [
     { value: 'unknown', label: 'Unknown' }
 ]
 
-// ============================================================
-// KEY TERMS
-// ============================================================
 export const SEMANTIC_DOMAINS = [
     { value: 'divine_name', label: 'Divine Name' },
     { value: 'theological', label: 'Theological Concept' },
@@ -386,9 +343,6 @@ export const CONSISTENCY_OPTIONS = [
     { value: 'flexible', label: 'Flexible (context-dependent)' }
 ]
 
-// ============================================================
-// DISCOURSE RELATIONS (for Stage 5)
-// ============================================================
 export const DISCOURSE_RELATIONS = [
     { value: 'sequence', label: 'Sequence (then)' },
     { value: 'simultaneous', label: 'Simultaneous (while)' },
