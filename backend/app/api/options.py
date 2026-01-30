@@ -1,7 +1,3 @@
-"""
-Options API Router
-Endpoints for managing dynamic field options
-"""
 from typing import List
 from fastapi import APIRouter, HTTPException, Path, Depends
 
@@ -58,7 +54,6 @@ async def create_option(
     a 409 Conflict error is returned.
     """
     try:
-        # Check if option already exists
         if await option_service.exists(category, data.value):
             raise HTTPException(
                 status_code=409, 
@@ -69,7 +64,7 @@ async def create_option(
             category=category,
             value=data.value,
             label=data.label,
-            user_id=current_user.get("sub")  # User ID from JWT
+            user_id=current_user.get("sub")
         )
         return option
     except HTTPException:

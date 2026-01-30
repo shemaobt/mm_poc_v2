@@ -1,19 +1,16 @@
-"""
-Authentication API Router
-Signup, login, and user info endpoints
-"""
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
-from datetime import timedelta
+from typing import List
+from prisma import Prisma
 
 from app.core.database import get_db
-from app.core.auth_middleware import (
-    get_password_hash,
-    verify_password,
-    create_access_token,
-    get_current_user,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+from app.core.auth_middleware import get_current_user
+from app.services import auth_service
+from app.services.auth_service import (
+    UsernameExistsError,
+    EmailExistsError,
+    InvalidCredentialsError,
+    UserNotFoundError
 )
 
 router = APIRouter()
@@ -45,44 +42,19 @@ class UserResponse(BaseModel):
 
 
 @router.post("/signup", response_model=UserResponse)
-async def signup(request: SignupRequest):
-    """Register a new user account"""
-    db = get_db()
-    
-    # Check if username or email already exists
-    existing_user = await db.user.find_first(
-        where={
-            "OR": [
-                {"username": request.username},
-                {"email": request.email}
-            ]
-        }
-    )
-    
-    if existing_user:
-        if existing_user.username == request.username:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already taken"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
-            )
-    
-    # Hash password and create user
-    password_hash = get_password_hash(request.password)
-    
-    user = await db.user.create(
-        data={
-            "username": request.username,
-            "email": request.email,
-            "passwordHash": password_hash,
-            "roles": ["user"],
-            "isApproved": False
-        }
-    )
+async def signup(request: SignupRequest, db: Prisma = Depends(get_db)):
+    """Register a new user account."""
+    try:
+        user = await auth_service.signup(
+            db,
+            username=request.username,
+            email=request.email,
+            password=request.password
+        )
+    except UsernameExistsError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except EmailExistsError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
     return UserResponse(
         id=user.id,
@@ -95,55 +67,27 @@ async def signup(request: SignupRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
-    """Login and receive access token"""
-    db = get_db()
-    
-    # Find user by username
-    user = await db.user.find_unique(where={"username": request.username})
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
+async def login(request: LoginRequest, db: Prisma = Depends(get_db)):
+    """Login and receive access token."""
+    try:
+        access_token = await auth_service.login(
+            db,
+            username=request.username,
+            password=request.password
         )
-    
-    # Verify password
-    if not verify_password(request.password, user.passwordHash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
-        )
-    
-    # Create access token
-    token_data = {
-        "sub": user.id,
-        "username": user.username,
-        "email": user.email,
-        "roles": user.roles,
-        "is_approved": user.isApproved
-    }
-    
-    access_token = create_access_token(
-        data=token_data,
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    except InvalidCredentialsError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
     
     return TokenResponse(access_token=access_token)
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: dict = Depends(get_current_user)):
-    """Get current authenticated user info"""
-    db = get_db()
-    
-    user = await db.user.find_unique(where={"id": current_user["sub"]})
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+async def get_me(db: Prisma = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Get current authenticated user info."""
+    try:
+        user = await auth_service.get_user_by_id(db, current_user["sub"])
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     
     return UserResponse(
         id=user.id,

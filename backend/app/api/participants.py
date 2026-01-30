@@ -1,6 +1,3 @@
-"""
-Participants API Router
-"""
 from typing import List
 from fastapi import APIRouter, HTTPException, Path
 
