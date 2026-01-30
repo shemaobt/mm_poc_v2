@@ -1,12 +1,10 @@
-/**
- * SavedMapsPage - View and manage completed meaning maps
- */
 import { useState, useEffect } from 'react'
 import { Card, CardContent } from '../ui/card'
 import { Button } from '../ui/button'
 import { mapsAPI, passagesAPI } from '../../services/api'
 import { useAuth } from '../../contexts/AuthContext'
 import { BookOpen, Download, Calendar, ArrowLeft, FileJson, Trash2, AlertTriangle, User, Eye } from 'lucide-react'
+import { pageStyles, errorStateStyles, cardStyles, stageHeaderStyles } from '@/styles'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -46,10 +44,9 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
     const [deleting, setDeleting] = useState<string | null>(null)
     const [mapToDelete, setMapToDelete] = useState<SavedMap | null>(null)
 
-    // Check if current user can delete a specific map
     const canDelete = (map: SavedMap): boolean => {
-        if (isAdmin) return true  // Admins can delete any map
-        return map.userId === user?.id  // Users can only delete their own maps
+        if (isAdmin) return true
+        return map.userId === user?.id
     }
 
     useEffect(() => {
@@ -73,7 +70,6 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
             setExporting(passageId)
             const data = await mapsAPI.exportPassage(passageId)
 
-            // Download as JSON file
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -125,23 +121,21 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
                         Back
                     </Button>
                     <div>
-                        <h1 className="text-2xl font-bold text-preto flex items-center gap-2">
-                            <FileJson className="w-6 h-6 text-telha" />
+                        <h1 className={pageStyles.title}>
+                            <FileJson className={stageHeaderStyles.icon} />
                             My Meaning Maps
                         </h1>
-                        <p className="text-verde text-sm">Saved analyses stored in the database</p>
+                        <p className={pageStyles.subtitle}>Saved analyses stored in the database</p>
                     </div>
                 </div>
             </div>
 
-            {/* Error */}
             {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                <div className={errorStateStyles.banner}>
                     {error}
                 </div>
             )}
 
-            {/* Loading */}
             {loading && (
                 <div className="text-center py-12 text-verde">
                     <div className="animate-spin w-8 h-8 border-4 border-telha border-t-transparent rounded-full mx-auto mb-4" />
@@ -149,9 +143,8 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
                 </div>
             )}
 
-            {/* Empty state */}
             {!loading && maps.length === 0 && (
-                <Card className="border-dashed">
+                <Card className={cardStyles.dashed}>
                     <CardContent className="py-16 text-center">
                         <BookOpen className="w-16 h-16 mx-auto mb-4 text-areia" />
                         <h3 className="text-lg font-medium text-preto mb-2">No Meaning Maps Yet</h3>
@@ -165,7 +158,6 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
                 </Card>
             )}
 
-            {/* Maps grid */}
             {!loading && maps.length > 0 && (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {maps.map((map) => (
@@ -192,7 +184,6 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
                                     </p>
                                 )}
 
-                                {/* Stats */}
                                 <div className="flex gap-4 text-xs text-verde/70 mb-4">
                                     <span>{map.participantCount} participants</span>
                                     <span>{map.eventCount} events</span>
@@ -258,7 +249,6 @@ export default function SavedMapsPage({ onBack, onOpenPassage }: SavedMapsPagePr
                 </div>
             )}
 
-            {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!mapToDelete} onOpenChange={() => setMapToDelete(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
