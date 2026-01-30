@@ -1,7 +1,3 @@
-/**
- * TypeScript type definitions
- */
-
 export interface Clause {
     clause_id: number
     verse: number
@@ -28,7 +24,7 @@ export interface DisplayUnit {
 }
 
 export interface PassageData {
-    id: string  // UUID from backend
+    id: string
     reference: string
     source_lang: string
     clauses: Clause[]
@@ -66,12 +62,6 @@ export interface Event {
 export interface BHSAStatus {
     status: 'loaded' | 'not_loaded'
     bhsa_loaded: boolean
-}
-
-export interface PropertyDimension {
-    dimension: string
-    value: string
-    degree?: string
 }
 
 export interface ParticipantBase {

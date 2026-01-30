@@ -1,10 +1,6 @@
-/**
- * Zustand store for passage data and application state
- */
 import { create } from 'zustand'
 import type { PassageData, ParticipantResponse, RelationResponse, EventResponse, DiscourseRelationResponse } from '../types'
 
-// Type for AI analysis snapshot
 interface AiSnapshotData {
     participants?: ParticipantResponse[]
     relations?: RelationResponse[]
@@ -12,18 +8,16 @@ interface AiSnapshotData {
     discourse?: DiscourseRelationResponse[]
 }
 
-// Validation state for each stage
 interface ValidationState {
-    participants: Set<string>  // Set of validated participant IDs
-    relations: Set<string>     // Set of validated relation IDs
-    events: Set<string>        // Set of validated event IDs
-    discourse: Set<string>     // Set of validated discourse IDs
+    participants: Set<string>
+    relations: Set<string>
+    events: Set<string>
+    discourse: Set<string>
 }
 
 interface PassageStore {
-    // State
     passageData: PassageData | null
-    readOnly: boolean  // When true, open from Saved Maps — same UI, no edits
+    readOnly: boolean
     participants: ParticipantResponse[]
     relations: RelationResponse[]
     events: EventResponse[]
@@ -34,9 +28,8 @@ interface PassageStore {
     aiSnapshot: AiSnapshotData | null
     snapshotId: string | null
     validated: ValidationState
-    checkedClauses: Set<string>  // Stage 1 clause read-check state
+    checkedClauses: Set<string>
 
-    // Actions (setters accept value or updater function for safe async updates)
     setPassageData: (data: PassageData) => void
     setReadOnly: (readOnly: boolean) => void
     setParticipants: (participants: ParticipantResponse[] | ((prev: ParticipantResponse[]) => ParticipantResponse[])) => void
@@ -47,22 +40,19 @@ interface PassageStore {
     setError: (error: string | null) => void
     setBhsaLoaded: (loaded: boolean) => void
     clearPassage: () => void
-    discardSession: () => void  // Clears local state and localStorage (keeps DB data)
+    discardSession: () => void
     setAiSnapshot: (data: AiSnapshotData, snapshotId: string) => void
     trackEdit: (action: string, entityType: string, entityId: string, fieldName?: string, oldValue?: unknown, newValue?: unknown, isAiGenerated?: boolean) => Promise<void>
     
-    // Validation actions
     toggleValidation: (stage: keyof ValidationState, id: string) => void
     validateAll: (stage: keyof ValidationState, ids: string[]) => void
     isStageFullyValidated: (stage: keyof ValidationState, ids: string[]) => boolean
     getValidationCount: (stage: keyof ValidationState) => number
     clearValidation: () => void
     
-    // Clause check actions (Stage 1)
     setCheckedClauses: (clauses: Set<string>) => void
     toggleClauseCheck: (clauseId: string) => void
     
-    // Data fetching actions
     fetchEvents: (passageId: string) => Promise<void>
     fetchDiscourse: (passageId: string) => Promise<void>
 }
@@ -72,7 +62,6 @@ import { persist } from 'zustand/middleware'
 export const usePassageStore = create<PassageStore>()(
     persist(
         (set, get) => ({
-            // Initial state
             passageData: null,
             readOnly: false,
             participants: [],
@@ -92,7 +81,6 @@ export const usePassageStore = create<PassageStore>()(
             },
             checkedClauses: new Set<string>(),
 
-            // Actions
             setPassageData: (data) => set({ passageData: data, error: null }),
             setParticipants: (arg) => set({
                 participants: typeof arg === 'function' ? arg(get().participants) : arg
@@ -129,12 +117,9 @@ export const usePassageStore = create<PassageStore>()(
             }),
             setReadOnly: (readOnly) => set({ readOnly }),
             
-            // Discard session: clears local state AND localStorage (keeps DB data intact)
             discardSession: () => {
-                // Clear localStorage for this store
                 localStorage.removeItem('passage-storage')
                 
-                // Reset state
                 set({
                     passageData: null,
                     readOnly: false,
@@ -155,7 +140,6 @@ export const usePassageStore = create<PassageStore>()(
                 })
             },
 
-            // AI Tracking
             setAiSnapshot: (data: any, snapshotId: string) => set({ aiSnapshot: data, snapshotId }),
             trackEdit: async (action: any, entityType: any, entityId: any, fieldName?: any, oldValue?: any, newValue?: any, isAiGenerated = false) => {
                 const { snapshotId } = get()
@@ -177,7 +161,6 @@ export const usePassageStore = create<PassageStore>()(
                 }
             },
 
-            // Validation actions
             toggleValidation: (stage, id) => {
                 const { validated } = get()
                 const newSet = new Set(validated[stage])
@@ -214,7 +197,6 @@ export const usePassageStore = create<PassageStore>()(
                 }
             }),
             
-            // Clause check actions (Stage 1)
             setCheckedClauses: (clauses) => set({ checkedClauses: clauses }),
             toggleClauseCheck: (clauseId) => {
                 const { checkedClauses } = get()
@@ -227,7 +209,6 @@ export const usePassageStore = create<PassageStore>()(
                 set({ checkedClauses: newSet })
             },
             
-            // Data fetching
             fetchEvents: async (passageId: string) => {
                 try {
                     const { bhsaAPI } = await import('../services/api')
@@ -259,7 +240,6 @@ export const usePassageStore = create<PassageStore>()(
                 aiSnapshot: state.aiSnapshot,
                 snapshotId: state.snapshotId,
                 bhsaLoaded: state.bhsaLoaded,
-                // Convert Sets to arrays for persistence
                 validated: {
                     participants: Array.from(state.validated.participants),
                     relations: Array.from(state.validated.relations),
@@ -268,7 +248,6 @@ export const usePassageStore = create<PassageStore>()(
                 },
                 checkedClauses: Array.from(state.checkedClauses)
             }),
-            // Restore Sets from arrays
             merge: (persisted: any, current) => ({
                 ...current,
                 ...persisted,

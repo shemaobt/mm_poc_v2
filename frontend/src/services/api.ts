@@ -1,6 +1,3 @@
-/**
- * API Client for backend communication
- */
 import axios from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -12,7 +9,6 @@ const apiClient = axios.create({
     },
 })
 
-// Add JWT token to requests
 const TOKEN_KEY = 'mm_auth_token'
 
 apiClient.interceptors.request.use((config) => {
@@ -22,10 +18,6 @@ apiClient.interceptors.request.use((config) => {
     }
     return config
 })
-
-// ============================================================
-// TYPES
-// ============================================================
 
 export interface User {
     id: string
@@ -40,10 +32,6 @@ export interface TokenResponse {
     access_token: string
     token_type: string
 }
-
-// ============================================================
-// AUTH API
-// ============================================================
 
 export const authAPI = {
     signup: async (username: string, email: string, password: string): Promise<User> => {
@@ -61,10 +49,6 @@ export const authAPI = {
         return response.data
     },
 }
-
-// ============================================================
-// USERS API (Admin only)
-// ============================================================
 
 export const usersAPI = {
     list: async (): Promise<{ users: User[] }> => {
@@ -93,21 +77,16 @@ export const usersAPI = {
     },
 }
 
-// ============================================================
-// BHSA API
-// ============================================================
-
 export const bhsaAPI = {
-    // Participants
     getParticipants: async (passageId: string) => {
         const response = await apiClient.get(`/api/passages/${passageId}/participants`)
         return response.data
     },
-    createParticipant: async (passageId: string, data: any) => { // Assuming 'any' for data type as ParticipantCreate is not defined
+    createParticipant: async (passageId: string, data: any) => {
         const response = await apiClient.post(`/api/passages/${passageId}/participants`, data)
         return response.data
     },
-    updateParticipant: async (id: string, data: any) => { // Assuming 'any' for data type as ParticipantCreate is not defined
+    updateParticipant: async (id: string, data: any) => {
         const response = await apiClient.put(`/api/participants/${id}`, data)
         return response.data
     },
@@ -116,7 +95,6 @@ export const bhsaAPI = {
         return response.data
     },
 
-    // Relations
     getRelations: async (passageId: string) => {
         const response = await apiClient.get(`/api/passages/${passageId}/relations`)
         return response.data
@@ -134,7 +112,6 @@ export const bhsaAPI = {
         return response.data
     },
 
-    // Events
     getEvents: async (passageId: string) => {
         const response = await apiClient.get(`/api/passages/${passageId}/events`)
         return response.data
@@ -156,7 +133,6 @@ export const bhsaAPI = {
         return response.data
     },
 
-    // Discourse
     getDiscourse: async (passageId: string) => {
         const response = await apiClient.get(`/api/passages/${passageId}/discourse`)
         return response.data
@@ -174,7 +150,6 @@ export const bhsaAPI = {
         return response.data
     },
 
-    // AI
     aiPrefill: async (formattedRef: string, apiKey: string) => {
         const response = await apiClient.post('/api/ai/prefill', {
             passage_ref: formattedRef,
@@ -201,13 +176,12 @@ export const bhsaAPI = {
 
     translateClauses: async (reference: string, apiKey: string) => {
         const response = await apiClient.post('/api/ai/translate_clauses', {
-            reference: reference, // Matches AIAnalysisRequest schema
-            api_key: apiKey // Not used in request model but potentially good for consistency
+            reference: reference,
+            api_key: apiKey
         })
         return response.data
     },
 
-    // BHSA
     getStatus: async () => {
         const response = await apiClient.get('/api/bhsa/status')
         return response.data
@@ -225,10 +199,6 @@ export const bhsaAPI = {
         return response.data
     },
 }
-
-// ============================================================
-// PASSAGES API
-// ============================================================
 
 export const passagesAPI = {
     list: async () => {
@@ -251,10 +221,6 @@ export const passagesAPI = {
         return response.data
     },
 }
-
-// ============================================================
-// PERICOPES API
-// ============================================================
 
 export interface LockInfo {
     pericopeRef: string
@@ -312,7 +278,6 @@ export const pericopesAPI = {
         return response.data
     },
 
-    // Lock management
     lock: async (reference: string) => {
         const response = await apiClient.post(`/api/pericopes/lock/${encodeURIComponent(reference)}`)
         return response.data
@@ -333,7 +298,6 @@ export const pericopesAPI = {
         return response.data
     },
 
-    // Admin-only bulk operations
     resetAllLocks: async () => {
         const response = await apiClient.delete('/api/pericopes/locks/all')
         return response.data
@@ -350,10 +314,6 @@ export const pericopesAPI = {
     },
 }
 
-// ============================================================
-// USER PROGRESS API (Admin only)
-// ============================================================
-
 export const userProgressAPI = {
     getProgress: async (): Promise<{ users: UserProgress[] }> => {
         const response = await apiClient.get('/api/users/progress')
@@ -361,38 +321,27 @@ export const userProgressAPI = {
     },
 }
 
-// ============================================================
-// EXPORT API (Tripod v5.2)
-// ============================================================
-
 export const mapsAPI = {
-    // List all completed meaning maps
     listCompleted: async () => {
         const response = await apiClient.get('/api/maps')
         return response.data
     },
 
-    // Export a passage as Tripod v5.2 JSON
     exportPassage: async (passageId: string) => {
         const response = await apiClient.get(`/api/maps/${passageId}/export`)
         return response.data
     },
 
-    // Mark a passage as complete
     finalizePassage: async (passageId: string) => {
         const response = await apiClient.post(`/api/maps/${passageId}/finalize`)
         return response.data
     },
 }
 
-// ============================================================
-// METRICS API
-// ============================================================
-
 export interface MetricsFilter {
     time_range?: 'today' | 'week' | 'month' | 'all'
-    start_date?: string  // YYYY-MM-DD
-    end_date?: string    // YYYY-MM-DD
+    start_date?: string
+    end_date?: string
 }
 
 export const metricsAPI = {
@@ -434,10 +383,6 @@ export const metricsAPI = {
         return response.data
     }
 }
-
-// ============================================================
-// OPTIONS API (Dynamic dropdown options)
-// ============================================================
 
 export interface FieldOption {
     id: string
