@@ -1,8 +1,3 @@
-/**
- * CreatableSelect Component
- * A dropdown select that fetches options from the backend and allows creating new options.
- * Extends the shadcn Select component with "Create new..." functionality.
- */
 import * as React from 'react'
 import { useState, useCallback } from 'react'
 import { Plus, Loader2 } from 'lucide-react'
@@ -58,7 +53,6 @@ export function CreatableSelect({
     const [newValue, setNewValue] = useState('')
     const [isSubmitting, setIsSubmitting] = useState(false)
 
-    // Merge API options with fallback options (removing duplicates)
     const mergedOptions = React.useMemo(() => {
         const apiValues = new Set(options.map(o => o.value))
         const fallbacks = fallbackOptions.filter(f => !apiValues.has(f.value))
@@ -68,7 +62,6 @@ export function CreatableSelect({
         ]
     }, [options, fallbackOptions])
 
-    // Handle the internal __na__ sentinel value
     const internalValue = value === '' || value === null || value === undefined ? '__na__' : value
 
     const handleValueChange = useCallback((v: string) => {
@@ -109,7 +102,6 @@ export function CreatableSelect({
         }
     }, [handleCreate])
 
-    // Get display value for the trigger
     const displayValue = React.useMemo(() => {
         if (value === '' || value === null || value === undefined) {
             return naLabel
@@ -178,21 +170,18 @@ export function CreatableSelect({
                 </SelectValue>
             </SelectTrigger>
             <SelectContent>
-                {/* N/A Option */}
                 {includeNA && (
                     <SelectItem value="__na__" className="text-gray-500 italic">
                         {naLabel}
                     </SelectItem>
                 )}
 
-                {/* Options from API/fallback */}
                 {mergedOptions.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                         {showLabels ? opt.label : opt.value}
                     </SelectItem>
                 ))}
 
-                {/* Create new option */}
                 <SelectItem value="__create__" className="text-telha font-medium border-t border-areia/30 mt-1 pt-2">
                     <span className="flex items-center gap-2">
                         <Plus className="h-4 w-4" />
@@ -234,7 +223,6 @@ export function SimpleCreatableSelect({
     const [isCreating, setIsCreating] = useState(false)
     const [newValue, setNewValue] = useState('')
 
-    // Normalize options to { value, label } format
     const normalizedOptions = React.useMemo(() => {
         return options.map(opt =>
             typeof opt === 'string' ? { value: opt, label: opt } : opt
