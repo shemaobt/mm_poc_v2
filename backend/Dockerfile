@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Copy dependency files, README (hatchling metadata), and app package for build
+COPY pyproject.toml uv.lock README.md ./
+COPY app ./app
 
 # Install dependencies using uv (creates .venv in /app)
 RUN uv sync --frozen --no-dev
