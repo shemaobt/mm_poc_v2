@@ -59,10 +59,10 @@ export function EventModal({
         setFormData({
             ...formData,
             emotions: [...(formData.emotions || []), {
-                primary: 'joy',
-                intensity: 'medium',
-                source: 'contextual',
-                confidence: 'medium'
+                primary: '',
+                intensity: '',
+                source: '',
+                confidence: ''
             }]
         })
     }
@@ -101,9 +101,9 @@ export function EventModal({
         setFormData({ ...formData, keyTerms: newTerms })
     }
 
-    const showSpeechAct = formData.category === 'SPEECH' || 
-        formData.category === 'COMMUNICATION' || 
-        formData.speechAct?.type || 
+    const showSpeechAct = formData.category === 'SPEECH' ||
+        formData.category === 'COMMUNICATION' ||
+        formData.speechAct?.type ||
         formData.speechAct?.quotationType
 
     return (

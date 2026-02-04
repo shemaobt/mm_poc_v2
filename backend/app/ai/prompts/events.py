@@ -39,8 +39,6 @@ def build_events_system_prompt(participants_context: str) -> str:
                 "modifiers": {{ "happened": "yes", "realness": "real", "when": "before_now", "viewpoint": "as_whole", "phase": "none", "repetition": "once", "onPurpose": "intended", "howKnown": "saw_it", "causation": "direct" }},
                 "speechAct": {{ "type": "stating", "quotationType": "direct" }},
                 "pragmatic": {{ "register": "narrative_formal", "socialAxis": "peer_to_peer", "prominence": "high", "pacing": "normal" }},
-                "narratorStance": {{ "stance": "sympathetic" }},
-                "audienceResponse": {{ "response": "pathos" }},
                 "laTags": {{
                     "eventTags": ["death", "loss"],
                     "registerTags": ["narrative_formal"],
@@ -79,10 +77,6 @@ def build_events_system_prompt(participants_context: str) -> str:
     - socialAxis: superior_to_inferior, inferior_to_superior, peer_to_peer, divine_to_human, human_to_divine
     - prominence: peak, high, medium, low
     - pacing: expanded, normal, compressed, abrupt
-    
-    NARRATOR/AUDIENCE VALUES:
-    - stance: sympathetic, critical, neutral, ironic, celebratory, mourning, warning
-    - response: pathos, fear, hope, outrage, joy, awe, relief, suspense, satisfaction
     
     FIGURATIVE VALUES:
     - figureType: metaphor, simile, metonymy, synecdoche, idiom, hyperbole, euphemism, personification, merism, hendiadys, irony, rhetorical_question
