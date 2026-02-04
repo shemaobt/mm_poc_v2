@@ -184,12 +184,13 @@ async def _get_display_units(
     if stored_display_units and not force_merge:
         return stored_display_units
     
-    if not skip_translate and get_settings().anthropic_api_key:
-        try:
-            from app.services.ai_service import AIService
-            return await AIService.suggest_clause_merges(passage_data)
-        except Exception as e:
-            print(f"[Merge] AI merge step failed: {e}, using one unit per clause.")
+    # If AI grouping is disabled, just return 1-to-1 default
+    # if not skip_translate and get_settings().anthropic_api_key:
+    #     try:
+    #         from app.services.ai_service import AIService
+    #         return await AIService.suggest_clause_merges(passage_data)
+    #     except Exception as e:
+    #         print(f"[Merge] AI merge step failed: {e}, using one unit per clause.")
     
     return [{"clause_ids": [c["clause_id"]], "merged": False} for c in passage_data["clauses"]]
 
