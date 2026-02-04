@@ -28,9 +28,6 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Generate Prisma client
 RUN prisma generate
 
-# Pre-load BHSA data during build
-RUN python -c "from tf.app import use; use('ETCBC/bhsa', silent=False)"
-
 ENV PORT=8000
 EXPOSE 8000
 
