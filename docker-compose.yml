@@ -1,12 +1,23 @@
 services:
+  gcp-secrets:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:alpine
+    container_name: mm_poc_v2_gcp_secrets
+    environment:
+      REPO_PREFIX: ${REPO_PREFIX:-mm_poc_v2}
+      SECRETS_PROJECT_ID: ${SECRETS_PROJECT_ID:-shemaobt-secrets}
+    volumes:
+      - gcp_secrets_env:/secrets
+      - ${HOME}/.config/gcloud:/root/.config/gcloud
+      - ../tf/scripts:/tf/scripts:ro
+    command: ["sh", "-c", "/tf/scripts/gcp_secrets_to_env.sh > /secrets/.env"]
+    restart: "no"
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    image: mm_poc_v2_backend
     container_name: mm_poc_v2_backend
-    env_file:
-      - ./backend/.env
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /root/.config/gcloud/application_default_credentials.json
     ports:
@@ -16,7 +27,42 @@ services:
       - backend_venv:/app/.venv
       - tf_data:/root/text-fabric-data
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
+      - gcp_secrets_env:/run/secrets:ro
+    depends_on:
+      gcp-secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health'); assert r.getcode()==200"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
     command: bash entrypoint.sh uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  bhsa-fetcher:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.bhsa
+    image: mm_poc_v2_bhsa
+    container_name: mm_poc_v2_bhsa_fetcher
+    volumes:
+      - tf_data:/root/text-fabric-data
+    restart: "no"
+    command: ["python", "-c", "from tf.app import use; use('ETCBC/bhsa', silent=False)"]
+
+  bhsa-load:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.bhsa
+    image: mm_poc_v2_bhsa
+    container_name: mm_poc_v2_bhsa_load
+    depends_on:
+      backend:
+        condition: service_healthy
+      bhsa-fetcher:
+        condition: service_completed_successfully
+    restart: "no"
+    command: ["python", "-c", "import urllib.request; req=urllib.request.Request('http://backend:8000/api/bhsa/load', method='POST'); urllib.request.urlopen(req)"]
 
   frontend:
     build:
@@ -24,8 +70,8 @@ services:
       dockerfile: Dockerfile
       target: build
     container_name: mm_poc_v2_frontend
-    env_file:
-      - ./frontend/.env
+    environment:
+      VITE_API_URL: http://localhost:8000
     ports:
       - "5173:5173"
     volumes:
@@ -38,3 +84,4 @@ services:
 volumes:
   tf_data:
   backend_venv:
+  gcp_secrets_env:
