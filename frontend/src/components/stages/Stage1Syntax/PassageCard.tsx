@@ -16,10 +16,9 @@ interface PassageCardProps {
     toggleClauseCheck: (id: string) => void
     readOnly: boolean
     isAdmin: boolean
-    loading: boolean
     bhsaLoaded: boolean
     allClausesChecked: boolean
-    onRefetchGrouping: () => void
+
     onDiscardSession: () => void
     onValidateAll: () => void
     onShowAIModal: () => void
@@ -36,10 +35,9 @@ export function PassageCard({
     toggleClauseCheck,
     readOnly,
     isAdmin,
-    loading,
     bhsaLoaded,
     allClausesChecked,
-    onRefetchGrouping,
+
     onDiscardSession,
     onValidateAll,
     onShowAIModal
@@ -76,16 +74,7 @@ export function PassageCard({
                 </div>
                 {!readOnly && (
                     <div className="flex gap-2">
-                        <Button
-                            onClick={onRefetchGrouping}
-                            variant="outline"
-                            className="gap-2"
-                            disabled={loading || !reference}
-                            title="Re-run AI to regenerate clause grouping (stored grouping will be replaced)"
-                        >
-                            <Sparkles className="w-4 h-4" />
-                            Refetch grouping
-                        </Button>
+
                         <Button
                             onClick={onDiscardSession}
                             variant="outline"
