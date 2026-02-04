@@ -72,6 +72,14 @@ uv run prisma studio
 - **Frontend**: React, Vite, Zustand, Tailwind
 - **BHSA**: text-fabric; AI: Claude/Gemini via LangChain
 
+## CI/CD (Cloud Run)
+
+The deploy workflow requires these GitHub repository secrets:
+
+- `GCP_PROJECT_ID` — GCP project where Cloud Run is deployed
+- `GCP_SA_KEY` — Service account key JSON (for deploy)
+- `SECRETS_PROJECT_NUMBER` — Numeric project ID of shemaobt-secrets (e.g. `384168199195`). Get it with: `gcloud projects describe shemaobt-secrets --format="value(projectNumber)"`
+
 ## Docs
 
 - [DATA_STORAGE_EXPLAINED.md](DATA_STORAGE_EXPLAINED.md) — How meaning map data is stored and exported.

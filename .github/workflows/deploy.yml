@@ -11,7 +11,7 @@ env:
   BACKEND_SERVICE: mm-poc-v2-backend
   FRONTEND_SERVICE: mm-poc-v2-frontend
   GAR_REPO: mm-poc-v2
-  SECRETS_PROJECT_ID: shemaobt-secrets
+  SECRETS_PROJECT_NUMBER: ${{ secrets.SECRETS_PROJECT_NUMBER }}
   REPO_PREFIX: mm_poc_v2
 
 jobs:
@@ -39,12 +39,6 @@ jobs:
       - name: Configure Docker Auth
         run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
-      - name: Get secrets project number
-        id: secrets-project
-        run: |
-          SECRETS_PROJECT_NUMBER=$(gcloud projects describe ${{ env.SECRETS_PROJECT_ID }} --format="value(projectNumber)")
-          echo "number=$SECRETS_PROJECT_NUMBER" >> $GITHUB_OUTPUT
-
       # BACKEND
       - name: Build and Push Backend
         run: |
@@ -65,7 +59,7 @@ jobs:
             --cpu-boost \
             --concurrency=80 \
             --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}" \
-            --set-secrets="DATABASE_URL=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_neon_database_url:latest,JWT_SECRET_KEY=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_jwt_secret:latest,GCS_BUCKET_NAME=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_gcs_bucket_name:latest,GEMINI_API_KEY=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_gemini_api_key:latest,ANTHROPIC_API_KEY=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_anthropic_api_key:latest,ELEVENLABS_API_KEY=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_elevenlabs_api_key:latest,ELEVENLABS_VOICE_ID=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_elevenlabs_voice_id:latest,GCS_SERVICE_ACCOUNT_JSON_B64=projects/${{ steps.secrets-project.outputs.number }}/secrets/${{ env.REPO_PREFIX }}_gcs_service_account_json_b64:latest" \
+            --set-secrets="DATABASE_URL=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_neon_database_url:latest,JWT_SECRET_KEY=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_jwt_secret:latest,GCS_BUCKET_NAME=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_gcs_bucket_name:latest,GEMINI_API_KEY=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_gemini_api_key:latest,ANTHROPIC_API_KEY=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_anthropic_api_key:latest,ELEVENLABS_API_KEY=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_elevenlabs_api_key:latest,ELEVENLABS_VOICE_ID=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_elevenlabs_voice_id:latest,GCS_SERVICE_ACCOUNT_JSON_B64=projects/${{ env.SECRETS_PROJECT_NUMBER }}/secrets/${{ env.REPO_PREFIX }}_gcs_service_account_json_b64:latest" \
             --startup-probe="httpGet.path=/api/bhsa/status,periodSeconds=10,failureThreshold=30" \
             --format="value(status.url)" > backend_url.txt
           echo "url=$(cat backend_url.txt)" >> $GITHUB_OUTPUT
