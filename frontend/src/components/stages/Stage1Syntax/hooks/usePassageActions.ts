@@ -8,13 +8,12 @@ interface UsePassageActionsParams {
     previewData: PreviewData | null
     currentLock: string | null
     passageData: any
-    loading: boolean
+
     setLoading: (loading: boolean) => void
     setLoadingMessage: (message: string) => void
     setError: (error: string | null) => void
     setPassageData: (data: any) => void
     setCheckedClauses: (clauses: Set<string>) => void
-    setEvents: (events: any[]) => void
     setPreviewData: (data: PreviewData | null) => void
     setIsPreviewMode: (mode: boolean) => void
     clearPassage: () => void
@@ -30,13 +29,12 @@ export function usePassageActions({
     previewData,
     currentLock,
     passageData,
-    loading,
+
     setLoading,
     setLoadingMessage,
     setError,
     setPassageData,
     setCheckedClauses,
-    setEvents,
     setPreviewData,
     setIsPreviewMode,
     clearPassage,
@@ -173,32 +171,7 @@ export function usePassageActions({
         })
     }, [currentLock, releaseLock, discardSession, setShowDiscardConfirm, setReference])
 
-    const handleRefetchGrouping = useCallback(async () => {
-        if (!passageData?.reference || loading) return
-        const cleanRef = stripPartialVerseIndicators(passageData.reference)
-        setLoading(true)
-        setLoadingMessage('Regenerating clause grouping...')
-        try {
-            const data = await bhsaAPI.fetchPassage(cleanRef, false, true)
-            setPassageData({ ...passageData, clauses: data.clauses, display_units: data.display_units })
-            toast.success('Clause grouping updated')
-            setLoadingMessage('Re-analyzing events to match new grouping...')
-            try {
-                const phase2 = await bhsaAPI.aiPhase2(cleanRef, '')
-                if (phase2?.data?.events) {
-                    setEvents(phase2.data.events)
-                    toast.success('Events updated to match new grouping')
-                }
-            } catch (phase2Err: any) {
-                toast.warning('Grouping updated; re-run AI Analyze to refresh events')
-            }
-        } catch (err: any) {
-            toast.error(err.response?.data?.detail || 'Failed to refetch grouping')
-        } finally {
-            setLoading(false)
-            setLoadingMessage('')
-        }
-    }, [passageData, loading, setLoading, setPassageData, setEvents, setLoadingMessage])
+
 
     const handleValidateAll = useCallback(() => {
         if (passageData?.clauses) {
@@ -213,7 +186,7 @@ export function usePassageActions({
         handleFetchPassage,
         handleStartAnalysis,
         handleDiscardSession,
-        handleRefetchGrouping,
+
         handleValidateAll
     }
 }

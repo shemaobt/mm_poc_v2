@@ -49,7 +49,7 @@ function Stage1Syntax() {
         handleStartAnalysis,
         handleCancelPreview,
         handleDiscardSession,
-        handleRefetchGrouping,
+
         handleValidateAll,
         allClausesChecked,
         mainlineClauses,
@@ -120,10 +120,9 @@ function Stage1Syntax() {
                     toggleClauseCheck={toggleClauseCheck}
                     readOnly={readOnly}
                     isAdmin={isAdmin}
-                    loading={loading}
                     bhsaLoaded={bhsaLoaded}
                     allClausesChecked={allClausesChecked}
-                    onRefetchGrouping={handleRefetchGrouping}
+
                     onDiscardSession={() => setShowDiscardConfirm(true)}
                     onValidateAll={handleValidateAll}
                     onShowAIModal={() => setShowAIModal(true)}

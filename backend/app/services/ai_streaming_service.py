@@ -1005,8 +1005,14 @@ async def _inject_display_units(passage: Any, passage_data: Dict[str, Any], AISe
         passage_data["display_units"] = stored_units
     else:
         try:
-            display_units = await AIService.suggest_clause_merges(passage_data)
+            # display_units = await AIService.suggest_clause_merges(passage_data)
+            # passage_data["display_units"] = display_units
+            
+            # Disable AI grouping - force 1-to-1 mapping
+            clauses = passage_data.get("clauses", [])
+            display_units = [{"clause_ids": [c.get("clause_id")], "merged": False} for c in clauses if c.get("clause_id")]
             passage_data["display_units"] = display_units
+            
         except Exception as e:
             print(f"Clause merge failed: {e}, using raw clauses")
     

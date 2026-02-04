@@ -26,7 +26,7 @@ COPY . .
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Generate Prisma client
-RUN prisma generate
+RUN uv run prisma generate
 
 ENV PORT=8000
 EXPOSE 8000

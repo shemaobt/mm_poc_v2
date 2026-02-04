@@ -14,7 +14,7 @@ export function useStage1Data() {
         passageData, readOnly, setPassageData, bhsaLoaded, setBhsaLoaded, loading, setLoading, error, setError,
         clearPassage, discardSession,
         checkedClauses, setCheckedClauses, toggleClauseCheck,
-        setEvents
+
     } = usePassageStore()
     const { isAdmin, user } = useAuth()
     const { currentLock, setCurrentLock, acquireLock, releaseLock, startHeartbeat } = usePericopeLock()
@@ -36,13 +36,12 @@ export function useStage1Data() {
         previewData,
         currentLock,
         passageData,
-        loading,
+
         setLoading,
         setLoadingMessage,
         setError,
         setPassageData,
         setCheckedClauses,
-        setEvents,
         setPreviewData,
         setIsPreviewMode,
         clearPassage,
@@ -239,7 +238,7 @@ export function useStage1Data() {
         handleStartAnalysis: passageActions.handleStartAnalysis,
         handleCancelPreview,
         handleDiscardSession: passageActions.handleDiscardSession,
-        handleRefetchGrouping: passageActions.handleRefetchGrouping,
+
         handleValidateAll: passageActions.handleValidateAll,
         allClausesChecked,
         mainlineClauses,
