@@ -80,6 +80,13 @@ The deploy workflow requires these GitHub repository secrets:
 - `GCP_SA_KEY` — Service account key JSON (for deploy)
 - `SECRETS_PROJECT_NUMBER` — Numeric project ID of shemaobt-secrets (e.g. `384168199195`). Get it with: `gcloud projects describe shemaobt-secrets --format="value(projectNumber)"`
 
+**One-time IAM setup:** The Cloud Run service account needs Secret Manager access. From the repo root (with `tf` as sibling), replace `YOUR_GCP_PROJECT_ID` with your deploy project (e.g. `gleaming-baton-475720-u3`):
+
+```bash
+PROJECT_NUM=$(gcloud projects describe YOUR_GCP_PROJECT_ID --format="value(projectNumber)")
+USER_EMAIL=${PROJECT_NUM}-compute@developer.gserviceaccount.com REPO_PREFIX=mm_poc_v2 MEMBER_TYPE=serviceAccount bash ../tf/scripts/grant_user_secret_access.sh
+```
+
 ## Docs
 
 - [DATA_STORAGE_EXPLAINED.md](DATA_STORAGE_EXPLAINED.md) — How meaning map data is stored and exported.

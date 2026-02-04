@@ -39,11 +39,9 @@ def build_events_system_prompt(participants_context: str) -> str:
                 "modifiers": {{ "happened": "yes", "realness": "real", "when": "before_now", "viewpoint": "as_whole", "phase": "none", "repetition": "once", "onPurpose": "intended", "howKnown": "saw_it", "causation": "direct" }},
                 "speechAct": {{ "type": "stating", "quotationType": "direct" }},
                 "pragmatic": {{ "register": "narrative_formal", "socialAxis": "peer_to_peer", "prominence": "high", "pacing": "normal" }},
-                "emotions": [{{ "participantId": "p1", "primary": "grief", "secondary": "despair", "intensity": "high", "source": "contextual", "confidence": "high" }}],
                 "narratorStance": {{ "stance": "sympathetic" }},
                 "audienceResponse": {{ "response": "pathos" }},
                 "laTags": {{
-                    "emotionTags": ["grief", "despair"],
                     "eventTags": ["death", "loss"],
                     "registerTags": ["narrative_formal"],
                     "discourseTags": ["background"],
@@ -82,12 +80,6 @@ def build_events_system_prompt(participants_context: str) -> str:
     - prominence: peak, high, medium, low
     - pacing: expanded, normal, compressed, abrupt
     
-    EMOTION VALUES:
-    - primary/secondary: joy, grief, fear, anger, love, hate, surprise, disgust, shame, pride, hope, despair, gratitude, jealousy, compassion, awe
-    - intensity: low, medium, high, extreme
-    - source: lexical, syntactic, somatic, actional, contextual, figurative
-    - confidence: certain, high, medium, low
-    
     NARRATOR/AUDIENCE VALUES:
     - stance: sympathetic, critical, neutral, ironic, celebratory, mourning, warning
     - response: pathos, fear, hope, outrage, joy, awe, relief, suspense, satisfaction
@@ -99,7 +91,6 @@ def build_events_system_prompt(participants_context: str) -> str:
     LA TAGS (Language Assistant Retrieval Tags):
     These are semantic tags that help retrieve similar passages for translation assistance.
     {{
-        "emotionTags": ["grief", "joy"],      // Emotions present in this event
         "eventTags": ["death", "marriage"],   // Type of life event
         "registerTags": ["formal", "poetic"], // Discourse register
         "discourseTags": ["background", "climax"], // Narrative function
@@ -107,7 +98,6 @@ def build_events_system_prompt(participants_context: str) -> str:
     }}
     
     LA TAG VALUES:
-    - emotionTags: Use values from EMOTION VALUES (joy, grief, fear, anger, love, etc.)
     - eventTags: birth, death, marriage, battle, journey, covenant, blessing, curse, miracle, prophecy, judgment, rescue, creation, destruction
     - registerTags: narrative, speech, poetry, legal, prophetic, wisdom, lament, praise
     - discourseTags: setting, background, mainline, climax, resolution, flashback, foreshadowing
@@ -150,7 +140,6 @@ def build_events_system_prompt(participants_context: str) -> str:
        - Ritual/legal terms in ceremonial or legal contexts
        Include keyTerms array even if only one term is identified. Use the Hebrew lemma from the clause or participant.
     8. For each event, provide LA TAGS (laTags) to enable semantic retrieval:
-       - emotionTags: Based on the emotions detected in the event
        - eventTags: The type of life/narrative event (death, marriage, battle, etc.)
        - registerTags: The discourse register (narrative, speech, poetry, etc.)
        - discourseTags: The narrative function (setting, climax, resolution, etc.)
