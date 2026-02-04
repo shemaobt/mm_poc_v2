@@ -11,7 +11,7 @@ env:
   BACKEND_SERVICE: mm-poc-v2-backend
   FRONTEND_SERVICE: mm-poc-v2-frontend
   GAR_REPO: mm-poc-v2
-  SECRETS_PROJECT_NUMBER: ${{ secrets.SECRETS_PROJECT_NUMBER }}
+  SECRETS_PROJECT_NUMBER: ${{ secrets.SECRETS_PROJECT_NUMBER || '384168199195' }}
   REPO_PREFIX: mm_poc_v2
 
 jobs:
